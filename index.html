@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Finance Dashboard</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+*{box-sizing:border-box;margin:0;padding:0;font-family:'Inter','Segoe UI',Arial,sans-serif !important}
+:root{
+  --bg:#F5F0E8;
+  --card:#FFFFFF;
+  --card2:#FAFAF6;
+  --border:#E4DDD2;
+  --border2:#EDE7DC;
+  --text:#2D2D2D;
+  --muted:#7A7168;
+  --accent:#5B7FA6;
+  --green:#5E9E6E;
+  --red:#C06060;
+  --amber:#B8893A;
+  --hdr-bg:#FFFFFF;
+  --sidebar-bg:#FAF8F4;
+  --tl-done:#5B7FA6;
+  --tl-coast:#5E9E6E;
+}
+body{
+  background:var(--bg);color:var(--text);
+  font-family:'Segoe UI','Inter',system-ui,-apple-system,sans-serif;
+  font-size:13px;height:100vh;overflow:hidden;
+}
+#error-box{display:none;position:fixed;top:0;left:0;right:0;background:#b91c1c;color:#fff;
+  padding:12px 16px;z-index:9999;font-size:13px;white-space:pre-wrap;border-bottom:2px solid #7f1d1d}
+#app{display:flex;flex-direction:column;height:100vh}
+
+/* ── header ── */
+.hdr{display:flex;align-items:center;justify-content:space-between;padding:0 20px;
+  height:52px;background:var(--hdr-bg);border-bottom:1px solid var(--border);flex-shrink:0}
+.hdr-title{font-weight:700;font-size:15px;letter-spacing:-0.2px;color:var(--text)}
+.hdr-sub{font-size:11px;color:var(--muted);margin-top:1px}
+.hdr-right{display:flex;align-items:center;gap:10px}
+.tabs{display:flex;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:3px;gap:2px}
+.tab-btn{padding:5px 16px;border:none;background:transparent;color:var(--muted);cursor:pointer;
+  border-radius:5px;font-size:12px;font-weight:500;transition:all .15s;letter-spacing:-0.1px}
+.tab-btn.active{background:var(--accent);color:#fff;box-shadow:0 1px 3px rgba(91,127,166,.3)}
+
+/* ── layout ── */
+.body{display:flex;flex:1;overflow:hidden}
+.sidebar{width:264px;flex-shrink:0;overflow-y:auto;border-right:1px solid var(--border);
+  background:var(--sidebar-bg);padding:14px 12px 20px}
+.sidebar::-webkit-scrollbar{width:4px}
+.sidebar::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+.main{flex:1;overflow-y:auto;padding:22px 24px}
+.main::-webkit-scrollbar{width:5px}
+.main::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+
+/* ── sidebar inputs ── */
+.sec-label{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.9px;padding:10px 4px 5px;border-bottom:1px solid var(--border2);margin-bottom:4px}
+.inp-row{display:flex;align-items:center;justify-content:space-between;padding:4px 4px;gap:6px}
+.inp-row label{color:var(--text);font-size:11.5px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.85}
+.inp-row input[type=number]{
+  width:86px;background:var(--card);border:1px solid var(--border);color:var(--text);
+  border-radius:5px;padding:4px 7px;font-size:12px;text-align:right;
+  font-family:inherit;transition:border-color .15s}
+.inp-row input[type=number]:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px rgba(91,127,166,.12)}
+input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none}
+input[type=number]{-moz-appearance:textfield}
+.toggle-wrap{display:flex;align-items:center;gap:7px;cursor:pointer;user-select:none}
+.toggle{width:32px;height:17px;background:var(--border);border-radius:9px;position:relative;transition:background .15s;flex-shrink:0}
+.toggle.on{background:var(--accent)}
+.toggle::after{content:'';position:absolute;top:2px;left:2px;width:13px;height:13px;background:#fff;border-radius:50%;transition:left .15s;box-shadow:0 1px 2px rgba(0,0,0,.15)}
+.toggle.on::after{left:17px}
+.divider{height:1px;background:var(--border2);margin:6px 0}
+.opt-btn{width:100%;padding:7px;background:var(--accent);color:#fff;border:none;border-radius:7px;
+  font-size:12px;font-weight:600;cursor:pointer;margin-top:8px;letter-spacing:.1px;
+  transition:background .15s;font-family:inherit}
+.opt-btn:hover{background:#4a6e94}
+
+/* ── cards ── */
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;
+  padding:18px;margin-bottom:18px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+.card-title{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.8px;margin-bottom:14px}
+
+/* ── stat grid ── */
+.stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:18px}
+.stat{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;
+  box-shadow:0 1px 3px rgba(0,0,0,.04)}
+.stat-label{font-size:11px;color:var(--muted);margin-bottom:5px;font-weight:500;letter-spacing:.2px}
+.stat-value{font-size:24px;font-weight:700;line-height:1;letter-spacing:-.5px}
+.stat-sub{font-size:11px;color:var(--muted);margin-top:4px}
+
+/* ── progress ── */
+.prog-wrap{margin-bottom:10px}
+.prog-label{display:flex;justify-content:space-between;font-size:11.5px;color:var(--muted);margin-bottom:5px}
+.prog-track{height:8px;background:var(--bg);border-radius:4px;overflow:hidden;border:1px solid var(--border2)}
+.prog-fill{height:100%;border-radius:4px;transition:width .4s ease}
+
+/* ── timeline ── */
+.timeline{position:relative;height:44px;margin:18px 0 6px}
+.tl-track{position:absolute;top:50%;left:0;right:0;height:5px;background:var(--bg);
+  border:1px solid var(--border2);border-radius:3px;transform:translateY(-50%)}
+.tl-fill-done{position:absolute;top:0;left:0;height:100%;background:var(--tl-done);border-radius:3px;opacity:.8}
+.tl-fill-coast{position:absolute;top:0;height:100%;background:var(--tl-coast);border-radius:0 3px 3px 0;opacity:.65}
+.tl-dot{position:absolute;top:50%;width:13px;height:13px;border-radius:50%;transform:translate(-50%,-50%);
+  border:2px solid var(--card)}
+.tl-label{position:absolute;top:calc(50% + 11px);font-size:10px;color:var(--muted);
+  transform:translateX(-50%);white-space:nowrap;font-weight:500}
+
+/* ── chart ── */
+.chart-wrap{width:100%;overflow-x:auto}
+svg.chart{width:100%;max-width:680px;display:block}
+
+/* ── budget table ── */
+.tbl-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:11.5px}
+th{background:var(--card2);color:var(--muted);font-weight:600;padding:7px 9px;
+  text-align:right;white-space:nowrap;border-bottom:2px solid var(--border);font-size:11px;letter-spacing:.1px}
+th:first-child{text-align:left;padding-left:10px}
+td{padding:5px 9px;text-align:right;border-bottom:1px solid var(--border2);color:var(--text)}
+td:first-child{text-align:left;font-weight:600;padding-left:10px}
+tr:hover td{background:var(--card2)}
+tr.phase-divider td{border-top:2px dashed var(--border);background:transparent}
+tr.phase-header td{background:var(--card2);font-size:10px;font-weight:700;color:var(--muted);
+  text-transform:uppercase;letter-spacing:.7px;padding:3px 9px}
+tr.phase-header td:first-child{padding-left:10px}
+.pos{color:var(--green);font-weight:500}
+.neg{color:var(--red);font-weight:500}
+.neu{color:var(--muted)}
+.dim{color:var(--muted);font-style:italic;font-size:11px}
+
+/* ── summary ── */
+.sum-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px}
+.sum-item{background:var(--card2);border:1px solid var(--border2);border-radius:9px;padding:12px 14px}
+.sum-item.highlight{border-color:var(--green);background:#F6FAF7}
+.sum-item-label{font-size:11px;color:var(--muted);margin-bottom:4px;font-weight:500}
+.sum-item-value{font-size:18px;font-weight:700;letter-spacing:-.3px}
+
+/* ── wedding ── */
+.wedding-bar{height:9px;background:var(--bg);border:1px solid var(--border2);border-radius:5px;overflow:hidden;margin-top:7px}
+.wedding-fill{height:100%;background:var(--amber);border-radius:4px;transition:width .3s}
+
+/* ── note chip ── */
+.chip{display:inline-block;font-size:10px;font-weight:600;padding:1px 6px;border-radius:3px;margin-left:4px;vertical-align:middle}
+.chip-blue{background:rgba(91,127,166,.12);color:var(--accent)}
+.chip-green{background:rgba(94,158,110,.12);color:var(--green)}
+.chip-amber{background:rgba(184,137,58,.12);color:var(--amber)}
+</style>
+</head>
+<body>
+<div id="error-box"></div>
+<div id="app"></div>
+<script>
+window.onerror = function(msg, src, line, col, err) {
+  var b = document.getElementById('error-box');
+  b.style.display = 'block';
+  b.textContent = 'JS Error: ' + msg + '\n  at ' + src + ':' + line + ':' + col +
+    (err && err.stack ? '\n\n' + err.stack : '');
+  return false;
+};
+
+// ── state ──────────────────────────────────────────────────────────────────────
+var S = {
+  currentAge: 29.5, retirementAge: 60, currentAssets: 520000,
+  targetSpending: 200000, swr: 2, returnRate: 10, inflationRate: 3.25,
+  planningYear: 2027, annualSalary: 192000, taxRate: 30,
+  monthlyExpenses: 2500, monthlyRent: 3100, rentFreeMonths: 2,
+  expectedTaxPayment: 7000, annual401kCap: 23500, rate401k: 0,
+  bonusPct: 20, pctBonusSaved: 77, employer401kMatch: 10900,
+  firstMonthFraction: 0.25, firstMonthNoExpenses: true, weddingGoal: 15000,
+  tab: 'coastfire'
+};
+
+// ── formatting ─────────────────────────────────────────────────────────────────
+function fmt(n) {
+  if (n === undefined || n === null || isNaN(n)) return '$0';
+  var abs = Math.abs(Math.round(n));
+  return (n < 0 ? '-$' : '$') + abs.toLocaleString();
+}
+function fmtM(n) {
+  var a = Math.abs(n);
+  if (a >= 1e6) return (n < 0 ? '-' : '') + '$' + (a / 1e6).toFixed(2) + 'M';
+  if (a >= 1e3) return (n < 0 ? '-' : '') + '$' + (a / 1e3).toFixed(0) + 'K';
+  return fmt(n);
+}
+function pct(n, d) { return (isNaN(n) ? 0 : n).toFixed(d === undefined ? 1 : d) + '%'; }
+var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+// ── TWO-PHASE budget computation ───────────────────────────────────────────────
+// Phase 1 (months 1–3): run at the user-set rate401k to accrue exactly the tax payment.
+// Phase 2 (months 4–12): funnel ALL remaining income into 401K until cap, then personal savings.
+// The April tax is paid from the Q1 accrued pool — it does NOT touch April's income.
+function computeBudget(s) {
+  var months = [], cum401k = 0, mGross = s.annualSalary / 12;
+
+  for (var i = 1; i <= 12; i++) {
+    var gross   = i === 1 ? mGross * s.firstMonthFraction : mGross;
+    var postTax = gross * (1 - s.taxRate / 100);
+    var rent    = i <= s.rentFreeMonths ? 0 : s.monthlyRent;
+    var exp;
+    if (i === 1 && s.firstMonthNoExpenses) {
+      exp = 0;                                                     // deferred entirely
+    } else if (i === 2 && s.firstMonthNoExpenses) {
+      exp = s.monthlyExpenses * (1 + s.firstMonthFraction);        // month 2 + fractional month 1
+    } else if (i === 1 && !s.firstMonthNoExpenses) {
+      exp = s.monthlyExpenses * s.firstMonthFraction;              // scaled to fraction of month
+    } else {
+      exp = s.monthlyExpenses;
+    }
+
+    var capRem = Math.max(0, s.annual401kCap - cum401k);
+    var c401k, remInc, pSav;
+
+    if (i <= 3) {
+      // ── Phase 1: explicit rate, income reserved for tax ──
+      c401k  = Math.min(postTax * (s.rate401k / 100), capRem);
+      remInc = postTax - c401k - rent - exp;
+      pSav   = 0; // accruing for tax payment
+    } else {
+      // ── Phase 2: maximise 401K, then personal savings ──
+      var avail = Math.max(0, postTax - rent - exp);
+      c401k  = Math.min(avail, capRem);
+      remInc = avail - c401k;     // 0 until cap hit
+      pSav   = remInc;            // 0 until cap hit, then full remainder
+    }
+
+    cum401k += c401k;
+
+    months.push({
+      month: i, gross: gross, postTax: postTax, c401k: c401k,
+      cum401k: cum401k, rent: rent, exp: exp, remInc: remInc,
+      taxPay: i === 4 ? s.expectedTaxPayment : 0,   // informational: paid from pool
+      pSav: pSav, phase: i <= 3 ? 1 : 2
+    });
+  }
+
+  var q1Accrual = months[0].remInc + months[1].remInc + months[2].remInc;
+  var taxGap    = q1Accrual - s.expectedTaxPayment;
+  var tot401k   = months.reduce(function(a, m) { return a + m.c401k; }, 0);
+  var totPSav   = months.reduce(function(a, m) { return a + m.pSav; }, 0);
+  var bonus     = s.annualSalary * (s.bonusPct / 100);
+  var bonusSav  = bonus * (s.pctBonusSaved / 100);
+  var bonusLeft = bonus - bonusSav;
+  var totSav    = tot401k + totPSav + bonusSav + s.employer401kMatch;
+
+  return { months: months, q1Accrual: q1Accrual, taxGap: taxGap,
+    tot401k: tot401k, totPSav: totPSav, bonus: bonus,
+    bonusSav: bonusSav, bonusLeft: bonusLeft, totSav: totSav };
+}
+
+// ── CoastFIRE solver ───────────────────────────────────────────────────────────
+// Model: current assets are already "there" and compound separately.
+// CoastFIRE target = FI / (1 + realRet)^(retirementAge - currentAge)  — fixed in today's dollars.
+// We find age c where SAVINGS CONTRIBUTIONS ALONE have compounded to the target:
+//   annual_savings × [(1+r)^(c − currentAge) − 1] / r  =  CoastFIRE_target
+// real_return uses the Fisher linear approximation (r − inflation) → matches ~$1,363,891.
+function computeCoastFIRE(s, annualSavings) {
+  var r       = s.returnRate    / 100;
+  var inf     = s.inflationRate / 100;
+  var realRet = r - inf;                              // Fisher linear approx
+  var FI      = s.targetSpending / (s.swr / 100);    // $10 M with defaults
+
+  // CoastFIRE target is a FIXED amount in today's dollars (does not vary with c)
+  var target = FI / Math.pow(1 + realRet, s.retirementAge - s.currentAge);
+
+  // Savings-only FV at age c (current assets excluded)
+  function savFV(c) {
+    var t = c - s.currentAge;
+    if (t <= 0) return 0;
+    if (Math.abs(r) < 1e-12) return annualSavings * t;
+    return annualSavings * (Math.pow(1 + r, t) - 1) / r;
+  }
+
+  console.log('[CoastFIRE] r=%f inf=%f realRet=%f FI=%f target=%f annualSav=%f',
+    r, inf, realRet, FI, target, annualSavings);
+
+  // Already hit target with current savings rate at time 0?
+  if (savFV(s.currentAge) >= target) {
+    console.log('[CoastFIRE] Already at CoastFIRE (or no savings needed).');
+    var raw0 = s.currentAge;
+    return { coastAge: raw0, coastAgeRounded: Math.round(raw0 * 2) / 2,
+      yearsToCoast: 0, target: target, achieved: true };
+  }
+  // Never reachable before retirement?
+  if (savFV(s.retirementAge) < target) {
+    console.log('[CoastFIRE] Not reachable before retirement.');
+    return { coastAge: s.retirementAge, coastAgeRounded: s.retirementAge,
+      yearsToCoast: s.retirementAge - s.currentAge,
+      target: target, achieved: false, unreachable: true };
+  }
+
+  var lo = s.currentAge, hi = s.retirementAge;
+  for (var i = 0; i < 200; i++) {
+    var mid  = (lo + hi) / 2;
+    var diff = savFV(mid) - target;
+    console.log('[CoastFIRE] iter %d  c=%.4f  savFV=%.0f  tgt=%.0f  diff=%.0f',
+      i, mid, savFV(mid), target, diff);
+    if (diff < 0) lo = mid; else hi = mid;
+    if (hi - lo < 0.001) break;
+  }
+
+  var rawAge    = (lo + hi) / 2;
+  var roundedAge = Math.round(rawAge * 2) / 2;      // nearest 0.5
+  console.log('[CoastFIRE] rawAge=%.4f  roundedAge=%.1f  years=%.3f',
+    rawAge, roundedAge, rawAge - s.currentAge);
+
+  return { coastAge: rawAge, coastAgeRounded: roundedAge,
+    yearsToCoast: rawAge - s.currentAge, target: target, achieved: false };
+}
+
+// ── 401K Phase-1 optimizer ─────────────────────────────────────────────────────
+// Finds the Phase-1 rate such that Q1 remaining income = expected tax payment.
+// Higher rate → more 401K deducted → less remaining income → smaller accrual.
+function optimize401k(s) {
+  function q1(rate) {
+    return computeBudget(Object.assign({}, s, { rate401k: rate })).q1Accrual;
+  }
+  if (q1(0) <= s.expectedTaxPayment) return 0;   // even at 0% we don't over-accrue
+  var lo = 0, hi = 100;
+  for (var i = 0; i < 120; i++) {
+    var mid = (lo + hi) / 2;
+    if (q1(mid) > s.expectedTaxPayment) lo = mid; else hi = mid;
+    if (hi - lo < 0.001) break;
+  }
+  return Math.round((lo + hi) / 2 * 100) / 100;
+}
+
+// ── SVG chart ──────────────────────────────────────────────────────────────────
+// Shows: savings-contributions-only FV curve (blue) vs fixed CoastFIRE target (gold dashed).
+// Current assets are excluded from the curve — they compound separately and are "already there."
+function buildChart(s, budget) {
+  var r       = s.returnRate    / 100;
+  var inf     = s.inflationRate / 100;
+  var realRet = r - inf;
+  var FI      = s.targetSpending / (s.swr / 100);
+  var ann     = budget.totSav;
+  var span    = s.retirementAge - s.currentAge;
+  var steps   = 120;
+  var target  = FI / Math.pow(1 + realRet, span);  // fixed CoastFIRE target today
+
+  // Savings-only FV points
+  var savPts = [];
+  var maxV   = target * 1.15;  // ensure target line always visible, scale headroom
+  for (var i = 0; i <= steps; i++) {
+    var c = s.currentAge + span * i / steps;
+    var t = c - s.currentAge;
+    var sv = t <= 0 ? 0
+      : (Math.abs(r) < 1e-12 ? ann * t : ann * (Math.pow(1+r,t)-1) / r);
+    savPts.push([c, sv]);
+    if (sv > maxV) maxV = sv;
+  }
+
+  var cf  = computeCoastFIRE(s, ann);
+  var W=680, H=260, pL=76, pR=24, pT=20, pB=40;
+  var cW  = W-pL-pR, cH = H-pT-pB;
+
+  function xs(age) { return pL + (age - s.currentAge) / span * cW; }
+  function ys(v)   { return H - pB - Math.min(1, v / maxV) * cH; }
+  function mkPath(pts) {
+    return pts.map(function(p, idx){
+      return (idx===0?'M':'L') + xs(p[0]).toFixed(1) + ',' + ys(p[1]).toFixed(1);
+    }).join(' ');
+  }
+
+  var tc = '#7A7168', gc = '#F0EAE0';
+
+  // Y-axis ticks
+  var yticks = [];
+  for (var k = 0; k <= 5; k++) yticks.push(maxV * k / 5);
+  // X-axis ticks every 5 years
+  var xticks = [];
+  var xStart = Math.ceil(s.currentAge / 5) * 5;
+  for (var a = xStart; a < s.retirementAge; a += 5) xticks.push(a);
+
+  // CoastFIRE intersection point on savings curve
+  var cx   = xs(cf.coastAge);
+  var cAge = cf.coastAge;
+  var ct   = cAge - s.currentAge;
+  var cSav = ct <= 0 ? 0
+    : (Math.abs(r)<1e-12 ? ann*ct : ann*(Math.pow(1+r,ct)-1)/r);
+  var cy   = ys(cSav);
+
+  // Target y-position (horizontal line)
+  var tgtY = ys(target).toFixed(1);
+
+  var svg = '<svg class="chart" viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg">';
+
+  // grid lines
+  svg += yticks.map(function(v){
+    var y = ys(v).toFixed(1);
+    return '<line x1="'+pL+'" y1="'+y+'" x2="'+(W-pR)+'" y2="'+y+'" stroke="'+gc+'" stroke-width="1"/>';
+  }).join('');
+
+  // faint area under savings curve
+  var areaD = mkPath(savPts)+' L'+(W-pR)+','+(H-pB)+' L'+pL+','+(H-pB)+' Z';
+  svg += '<path d="'+areaD+'" fill="rgba(91,127,166,.07)"/>';
+
+  // savings-only curve (blue)
+  svg += '<path d="'+mkPath(savPts)+'" stroke="#5B7FA6" fill="none" stroke-width="2.5" stroke-linejoin="round"/>';
+
+  // CoastFIRE target — fixed horizontal dashed line (gold)
+  svg += '<line x1="'+pL+'" y1="'+tgtY+'" x2="'+(W-pR)+'" y2="'+tgtY+
+         '" stroke="#B8893A" stroke-width="2" stroke-dasharray="7,4"/>';
+
+  // CoastFIRE vertical + intersection dot
+  if (!cf.unreachable && !cf.achieved) {
+    svg += '<line x1="'+cx.toFixed(1)+'" y1="'+pT+'" x2="'+cx.toFixed(1)+'" y2="'+(H-pB)+
+           '" stroke="#5E9E6E" stroke-width="1.5" stroke-dasharray="4,3" opacity=".75"/>';
+    svg += '<circle cx="'+cx.toFixed(1)+'" cy="'+cy.toFixed(1)+'" r="6" fill="#5E9E6E" stroke="#fff" stroke-width="2.5"/>';
+  }
+
+  // Y axis labels
+  svg += yticks.map(function(v){
+    return '<text x="'+(pL-7)+'" y="'+(ys(v)+4)+'" text-anchor="end" font-size="10" fill="'+tc+'">'+fmtM(v)+'</text>';
+  }).join('');
+
+  // X axis labels
+  svg += xticks.map(function(a){
+    return '<text x="'+xs(a).toFixed(1)+'" y="'+(H-pB+15)+'" text-anchor="middle" font-size="10" fill="'+tc+'">'+a+'</text>';
+  }).join('');
+  svg += '<text x="'+pL+'" y="'+(H-pB+15)+'" text-anchor="middle" font-size="10" fill="'+tc+'">'+s.currentAge+'</text>';
+  svg += '<text x="'+(W-pR)+'" y="'+(H-pB+15)+'" text-anchor="end" font-size="10" fill="'+tc+'">'+s.retirementAge+'</text>';
+
+  // ── legend pinned top-LEFT (always fully inside chart) ──
+  var lx = pL + 4, ly = pT + 4;
+  var lw = 168, lh = cf.unreachable || cf.achieved ? 36 : 50;
+  svg += '<rect x="'+lx+'" y="'+ly+'" width="'+lw+'" height="'+lh+
+         '" rx="5" fill="rgba(255,255,255,.92)" stroke="'+gc+'"/>';
+  svg += '<line x1="'+(lx+8)+'" y1="'+(ly+12)+'" x2="'+(lx+24)+'" y2="'+(ly+12)+
+         '" stroke="#5B7FA6" stroke-width="2.5"/>';
+  svg += '<text x="'+(lx+28)+'" y="'+(ly+16)+'" font-size="11" fill="'+tc+'">Savings contributions</text>';
+  svg += '<line x1="'+(lx+8)+'" y1="'+(ly+27)+'" x2="'+(lx+24)+'" y2="'+(ly+27)+
+         '" stroke="#B8893A" stroke-width="2" stroke-dasharray="5,3"/>';
+  svg += '<text x="'+(lx+28)+'" y="'+(ly+31)+'" font-size="11" fill="'+tc+'">CoastFIRE target ('+fmtM(target)+')</text>';
+  if (!cf.unreachable && !cf.achieved) {
+    svg += '<circle cx="'+(lx+8)+'" cy="'+(ly+43)+'" r="5" fill="#5E9E6E"/>';
+    svg += '<text x="'+(lx+18)+'" y="'+(ly+47)+'" font-size="11" fill="'+tc+'">Coast at age '+cf.coastAgeRounded+'</text>';
+  }
+
+  svg += '</svg>';
+  return svg;
+}
+
+// ── render CoastFIRE tab ───────────────────────────────────────────────────────
+function renderCoastFire(s, budget) {
+  var cf       = computeCoastFIRE(s, budget.totSav);
+  var span     = s.retirementAge - s.currentAge;
+  var coastPct = span > 0 ? Math.min(97, Math.max(3, (cf.yearsToCoast / span) * 100)) : 0;
+  // Display age: rounded to nearest 0.5
+  var dispAge  = cf.coastAgeRounded;
+  var dispYrs  = cf.yearsToCoast.toFixed(1);
+  var html     = '';
+
+  // ── KPI cards ──
+  html += '<div class="stat-grid">';
+  html += '<div class="stat"><div class="stat-label">CoastFIRE Savings Target</div>'+
+    '<div class="stat-value" style="color:var(--amber)">'+fmt(cf.target)+'</div>'+
+    '<div class="stat-sub">contributions needed (today\'s $)</div></div>';
+  html += '<div class="stat"><div class="stat-label">Years to CoastFIRE</div>'+
+    '<div class="stat-value" style="color:var(--accent)">'+(cf.achieved ? '0' : dispYrs)+'</div>'+
+    '<div class="stat-sub">at current savings rate</div></div>';
+  html += '<div class="stat"><div class="stat-label">CoastFIRE Age</div>'+
+    '<div class="stat-value" style="color:var(--green)">'+(cf.achieved ? s.currentAge : dispAge)+'</div>'+
+    '<div class="stat-sub">stop contributing, let it grow</div></div>';
+  html += '</div>';
+
+  // ── timeline card ──
+  html += '<div class="card"><div class="card-title">Age Timeline</div>';
+  html += '<div class="prog-label" style="margin-bottom:8px">'+
+    '<span>Current age <strong>'+s.currentAge+'</strong></span>'+
+    '<span>'+(cf.achieved
+      ? '<span style="color:var(--green);font-weight:700">Already at CoastFIRE!</span>'
+      : 'Coast at age <strong style="color:var(--green)">'+dispAge+'</strong>')+
+    '</span>'+
+    '<span>Retire at <strong>'+s.retirementAge+'</strong></span>'+
+    '</div>';
+  html += '<div class="timeline"><div class="tl-track">'+
+    '<div class="tl-fill-done" style="width:'+coastPct+'%"></div>'+
+    '<div class="tl-fill-coast" style="left:'+coastPct+'%;width:'+(100-coastPct)+'%"></div>'+
+    '</div>';
+  html += '<div class="tl-dot" style="left:0.5%;background:var(--accent)">'+
+    '<div class="tl-label" style="transform:none;left:0">'+s.currentAge+'</div></div>';
+  if (!cf.achieved && !cf.unreachable) {
+    html += '<div class="tl-dot" style="left:'+coastPct+'%;background:var(--green)">'+
+      '<div class="tl-label">'+dispAge+'</div></div>';
+  }
+  html += '<div class="tl-dot" style="left:98.5%;background:var(--muted)">'+
+    '<div class="tl-label" style="right:0;transform:none;left:auto">'+s.retirementAge+'</div></div>';
+  html += '</div>';
+
+  if (cf.unreachable) {
+    html += '<div style="margin-top:14px;padding:10px 12px;background:#FEF3F2;border:1px solid #FCA5A5;'+
+      'border-radius:8px;font-size:12px;color:#991B1B">'+
+      '⚠ CoastFIRE not reachable before retirement with current inputs. Increase savings rate or return rate.</div>';
+  }
+  html += '</div>'; // close timeline card
+
+  // ── chart ──
+  html += '<div class="card"><div class="card-title">Savings Contributions vs. CoastFIRE Target</div>'+
+    '<div style="font-size:11.5px;color:var(--muted);margin-bottom:10px">'+
+    'Blue curve = compounded value of new contributions only. '+
+    'Gold dashed = CoastFIRE target ('+fmt(cf.target)+' in today\'s dollars). '+
+    'Current assets ('+fmt(s.currentAssets)+') compound separately.</div>'+
+    '<div class="chart-wrap">'+buildChart(s, budget)+'</div></div>';
+
+  // ── assumptions ──
+  var r = s.returnRate/100, realRet = r - s.inflationRate/100;
+  html += '<div class="card"><div class="card-title">Key Figures</div>'+
+    '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;font-size:12px">'+
+    '<div><div style="color:var(--muted);margin-bottom:2px">Nominal return</div><strong>'+pct(s.returnRate)+'</strong></div>'+
+    '<div><div style="color:var(--muted);margin-bottom:2px">Inflation</div><strong>'+pct(s.inflationRate)+'</strong></div>'+
+    '<div><div style="color:var(--muted);margin-bottom:2px">Real return (r−π)</div><strong>'+pct(realRet*100,2)+'</strong></div>'+
+    '<div><div style="color:var(--muted);margin-bottom:2px">FI number (spending / SWR)</div><strong>'+fmt(s.targetSpending/(s.swr/100))+'</strong></div>'+
+    '<div><div style="color:var(--muted);margin-bottom:2px">Current assets</div><strong>'+fmt(s.currentAssets)+'</strong></div>'+
+    '<div><div style="color:var(--muted);margin-bottom:2px">Annual savings (budget)</div><strong>'+fmt(budget.totSav)+'</strong></div>'+
+    '</div></div>';
+
+  return html;
+}
+
+// ── render Budget tab ──────────────────────────────────────────────────────────
+function renderBudget(s, budget) {
+  var html = '';
+  html += '<div class="card"><div class="card-title">'+s.planningYear+' Monthly Cash Flow</div>';
+
+  // Phase legend
+  html += '<div style="display:flex;gap:16px;margin-bottom:12px;font-size:11.5px">'+
+    '<span><span class="chip chip-blue">Phase 1</span> Jan–Mar: contribute at <strong>'+pct(s.rate401k,2)+'</strong> to accrue tax reserve</span>'+
+    '<span><span class="chip chip-green">Phase 2</span> Apr–Dec: max 401K first, then personal savings</span>'+
+    '</div>';
+
+  html += '<div class="tbl-wrap"><table>';
+  html += '<tr><th>Month</th><th>Gross</th><th>Post-Tax</th>'+
+    '<th>401K</th><th>Cum 401K</th><th>Rent</th><th>Expenses</th>'+
+    '<th>Remaining</th><th>Tax Accrual</th><th>Tax Paid</th><th>Tax Gap</th><th>Personal Sav</th></tr>';
+
+  var q1Cum = 0;
+  var inPhase2 = false;
+  budget.months.forEach(function(m, idx) {
+    // Phase divider row between March and April
+    if (idx === 3 && !inPhase2) {
+      inPhase2 = true;
+      html += '<tr class="phase-header"><td colspan="12"><span class="chip chip-green">Phase 2</span> '+
+        ' 401K maximised first → personal savings once cap hit</td></tr>';
+    }
+
+    if (idx < 3) q1Cum += m.remInc;
+
+    // Tax accrual column
+    var accrualCell;
+    if (idx < 3) {
+      accrualCell = '<td class="neu">'+fmt(q1Cum)+'</td>';
+    } else if (idx === 3) {
+      accrualCell = '<td class="neu" title="End-of-March pool">'+fmt(q1Cum)+'</td>';
+    } else {
+      accrualCell = '<td class="neu dim">—</td>';
+    }
+
+    // Tax gap (April only)
+    var gapCell;
+    if (idx === 3) {
+      gapCell = '<td class="'+(budget.taxGap >= 0 ? 'pos' : 'neg')+'">'+fmt(budget.taxGap)+'</td>';
+    } else {
+      gapCell = '<td class="neu dim">—</td>';
+    }
+
+    // Tax paid column — April shows "(from pool)"
+    var taxCell;
+    if (idx === 3) {
+      taxCell = '<td class="neg" title="Paid from Jan–Mar accrual">'+fmt(m.taxPay)+'<br><span style="font-size:10px;font-weight:400;color:var(--muted)">(from pool)</span></td>';
+    } else {
+      taxCell = '<td class="neu dim">—</td>';
+    }
+
+    var rowStyle = idx < 3 ? ' style="background:rgba(91,127,166,.03)"' : '';
+
+    html += '<tr'+rowStyle+'>';
+    html += '<td>'+MONTHS[m.month-1]+(m.phase===1?' <span class="chip chip-blue" style="font-size:9px">P1</span>':'')+'</td>';
+    html += '<td>'+fmt(m.gross)+'</td>';
+    html += '<td>'+fmt(m.postTax)+'</td>';
+    html += '<td class="'+(m.c401k>0?'pos':'neu')+'">'+fmt(m.c401k)+'</td>';
+    html += '<td class="'+(m.cum401k>=s.annual401kCap?'dim':'neu')+'">'+fmt(m.cum401k)+
+      (m.cum401k>=s.annual401kCap?' <span style="font-size:10px">⚑</span>':'')+'</td>';
+    html += '<td class="'+(m.rent>0?'neg':'neu')+'">'+fmt(m.rent)+'</td>';
+    html += '<td class="'+(m.exp>0?'neg':'neu')+'">'+fmt(m.exp)+'</td>';
+    html += '<td class="'+(m.remInc>=0?'pos':'neg')+'">'+fmt(m.remInc)+'</td>';
+    html += accrualCell;
+    html += taxCell;
+    html += gapCell;
+    html += '<td class="'+(m.pSav>0?'pos':m.pSav<0?'neg':'neu')+'">'+
+      (m.pSav===0 && m.phase===1 ? '<span class="dim">accruing</span>' : fmt(m.pSav))+'</td>';
+    html += '</tr>';
+  });
+  html += '</table></div></div>';
+
+  // ── annual summary ──
+  html += '<div class="card"><div class="card-title">'+s.planningYear+' Annual Summary</div>';
+  html += '<div class="sum-grid">';
+  html += '<div class="sum-item"><div class="sum-item-label">Year-End Bonus</div>'+
+    '<div class="sum-item-value" style="color:var(--amber)">'+fmt(budget.bonus)+'</div></div>';
+  html += '<div class="sum-item"><div class="sum-item-label">Savings from Bonus ('+pct(s.pctBonusSaved)+')</div>'+
+    '<div class="sum-item-value" style="color:var(--green)">'+fmt(budget.bonusSav)+'</div></div>';
+  html += '<div class="sum-item"><div class="sum-item-label">Total 401K Contributions</div>'+
+    '<div class="sum-item-value" style="color:var(--accent)">'+fmt(budget.tot401k)+
+    (budget.tot401k>=s.annual401kCap?' <span style="font-size:12px;color:var(--green)">✓ maxed</span>':'')+'</div></div>';
+  html += '<div class="sum-item"><div class="sum-item-label">Employer 401K Match</div>'+
+    '<div class="sum-item-value" style="color:var(--accent)">'+fmt(s.employer401kMatch)+'</div></div>';
+  html += '<div class="sum-item"><div class="sum-item-label">Monthly Personal Savings</div>'+
+    '<div class="sum-item-value" style="color:var(--green)">'+fmt(budget.totPSav)+'</div></div>';
+  html += '<div class="sum-item highlight"><div class="sum-item-label">Total '+s.planningYear+' Savings</div>'+
+    '<div class="sum-item-value" style="color:var(--green)">'+fmt(budget.totSav)+'</div>'+
+    '<div style="font-size:11px;color:var(--muted);margin-top:3px">401K + personal + bonus + match</div></div>';
+  html += '</div>';
+
+  // ── wedding progress ──
+  var wPct = Math.min(100, budget.bonusLeft / s.weddingGoal * 100);
+  var wRem = s.weddingGoal - budget.bonusLeft;
+  html += '<div style="margin-top:14px;padding:14px 16px;background:var(--card2);border:1px solid var(--border2);border-radius:10px">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">'+
+    '<span style="font-weight:600;font-size:13px">Wedding Savings</span>'+
+    '<span style="color:var(--muted);font-size:11.5px">Goal: '+fmt(s.weddingGoal)+'</span></div>';
+  html += '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:8px">'+
+    '<span>Bonus remainder: <strong style="color:var(--amber)">'+fmt(budget.bonusLeft)+'</strong></span>';
+  if (wRem <= 0) {
+    html += '<span style="color:var(--green);font-weight:700">✓ Goal achieved! +'+fmt(-wRem)+' surplus</span>';
+  } else {
+    html += '<span style="color:var(--red)">'+fmt(wRem)+' still needed</span>';
+  }
+  html += '</div>';
+  html += '<div class="wedding-bar"><div class="wedding-fill" style="width:'+wPct.toFixed(1)+'%"></div></div>';
+  html += '<div style="font-size:11px;color:var(--muted);margin-top:5px">'+pct(wPct,1)+' of goal covered by bonus remainder</div>';
+  html += '</div></div>';
+
+  return html;
+}
+
+// ── sidebar ────────────────────────────────────────────────────────────────────
+function mkInp(id, label, val, step) {
+  return '<div class="inp-row"><label title="'+label+'">'+label+'</label>'+
+    '<input type="number" id="i_'+id+'" value="'+val+'" step="'+(step||'any')+'" min="0"'+
+    ' oninput="upd(\''+id+'\',+this.value)"></div>';
+}
+function mkTog(id, label, val) {
+  return '<div class="inp-row"><label>'+label+'</label>'+
+    '<div class="toggle-wrap" onclick="tog(\''+id+'\')" id="tw_'+id+'">'+
+    '<div class="toggle '+(val?'on':'')+'" id="tg_'+id+'"></div>'+
+    '<span style="font-size:11px;color:var(--muted)" id="ts_'+id+'">'+(val?'Yes':'No')+'</span>'+
+    '</div></div>';
+}
+function renderSidebar(s) {
+  var h = '';
+  h += '<div class="sec-label">Retirement</div>';
+  h += mkInp('currentAge','Current Age',s.currentAge,0.5);
+  h += mkInp('retirementAge','Retirement Age',s.retirementAge,1);
+  h += mkInp('currentAssets','Current Assets ($)',s.currentAssets,1000);
+  h += mkInp('targetSpending','Target Spending/yr ($)',s.targetSpending,1000);
+  h += mkInp('swr','Safe Withdrawal Rate (%)',s.swr,0.1);
+  h += mkInp('returnRate','Expected Return (%)',s.returnRate,0.1);
+  h += mkInp('inflationRate','Inflation Rate (%)',s.inflationRate,0.01);
+  h += '<div class="divider"></div>';
+  h += '<div class="sec-label">Budget</div>';
+  h += mkInp('planningYear','Planning Year',s.planningYear,1);
+  h += mkInp('annualSalary','Annual Salary ($)',s.annualSalary,1000);
+  h += mkInp('taxRate','Income Tax Rate (%)',s.taxRate,1);
+  h += mkInp('monthlyExpenses','Monthly Expenses ($)',s.monthlyExpenses,100);
+  h += mkInp('monthlyRent','Monthly Rent ($)',s.monthlyRent,100);
+  h += mkInp('rentFreeMonths','Rent-Free Months',s.rentFreeMonths,1);
+  h += mkInp('expectedTaxPayment','Expected Tax Due ($)',s.expectedTaxPayment,100);
+  h += mkInp('annual401kCap','401K Annual Cap ($)',s.annual401kCap,100);
+  h += mkInp('rate401k','Phase-1 401K Rate (%)',+(s.rate401k).toFixed(2),0.01);
+  h += mkInp('bonusPct','Year-End Bonus (%)',s.bonusPct,1);
+  h += mkInp('pctBonusSaved','% Bonus Saved',s.pctBonusSaved,1);
+  h += mkInp('employer401kMatch','Employer Match ($)',s.employer401kMatch,100);
+  h += mkInp('firstMonthFraction','First Month Fraction',s.firstMonthFraction,0.05);
+  h += mkTog('firstMonthNoExpenses','First Mo. No Expenses',s.firstMonthNoExpenses);
+  h += mkInp('weddingGoal','Wedding Goal ($)',s.weddingGoal,500);
+  h += '<button class="opt-btn" onclick="runOpt()">Optimize Phase-1 401K Rate</button>';
+  return h;
+}
+
+// ── full render ────────────────────────────────────────────────────────────────
+function render() {
+  var budget = computeBudget(S);
+  var html = '';
+
+  // header
+  html += '<div class="hdr">'+
+    '<div><div class="hdr-title">Personal Finance Dashboard</div>'+
+    '<div class="hdr-sub">'+S.planningYear+' Planning Year</div></div>'+
+    '<div class="hdr-right">'+
+    '<div class="tabs">'+
+    '<button class="tab-btn'+(S.tab==='coastfire'?' active':'')+'" onclick="swTab(\'coastfire\')">CoastFIRE</button>'+
+    '<button class="tab-btn'+(S.tab==='budget'?' active':'')+'" onclick="swTab(\'budget\')">Budget Planner</button>'+
+    '</div></div></div>';
+
+  // body
+  html += '<div class="body">'+
+    '<div class="sidebar" id="sidebar">'+renderSidebar(S)+'</div>'+
+    '<div class="main" id="main">'+
+    (S.tab==='coastfire' ? renderCoastFire(S, budget) : renderBudget(S, budget))+
+    '</div></div>';
+
+  document.getElementById('app').innerHTML = html;
+}
+
+// ── event handlers (no full re-render on input — preserves focus) ──────────────
+function upd(key, val) {
+  S[key] = val;
+  refreshMain();
+}
+function tog(id) {
+  S[id] = !S[id];
+  var tg = document.getElementById('tg_'+id);
+  var ts = document.getElementById('ts_'+id);
+  if (tg) tg.className = 'toggle ' + (S[id] ? 'on' : '');
+  if (ts) ts.textContent = S[id] ? 'Yes' : 'No';
+  refreshMain();
+}
+function swTab(t) {
+  S.tab = t;
+  // update button states without full re-render
+  document.querySelectorAll('.tab-btn').forEach(function(b, i) {
+    b.className = 'tab-btn' + (S.tab === ['coastfire','budget'][i] ? ' active' : '');
+  });
+  refreshMain();
+}
+function runOpt() {
+  var rate = optimize401k(S);
+  S.rate401k = rate;
+  // update input field directly
+  var el = document.getElementById('i_rate401k');
+  if (el) el.value = rate;
+  refreshMain();
+}
+function refreshMain() {
+  var m = document.getElementById('main');
+  if (!m) { render(); return; }
+  var budget = computeBudget(S);
+  m.innerHTML = S.tab==='coastfire' ? renderCoastFire(S, budget) : renderBudget(S, budget);
+  // keep header subtitle in sync
+  var sub = document.querySelector('.hdr-sub');
+  if (sub) sub.textContent = S.planningYear + ' Planning Year';
+}
+
+render();
+</script>
+</body>
+</html>
