@@ -191,6 +191,8 @@ var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov',
 // Phase 1 (months 1–3): run at the user-set rate401k to accrue exactly the tax payment.
 // Phase 2 (months 4–12): funnel ALL remaining income into 401K until cap, then personal savings.
 // The April tax is paid from the Q1 accrued pool — it does NOT touch April's income.
+var INHERIT_MONTHLY = 1500;   // $18K/yr inheritance disbursement ÷ 12
+
 function computeBudget(s) {
   var months = [], cum401k = 0, mGross = s.annualSalary / 12;
 
@@ -216,13 +218,13 @@ function computeBudget(s) {
       // ── Phase 1: explicit rate, income reserved for tax ──
       c401k  = Math.min(postTax * (s.rate401k / 100), capRem);
       remInc = postTax - c401k - rent - exp;
-      pSav   = 0; // accruing for tax payment
+      pSav   = INHERIT_MONTHLY;  // salary accruing for tax; inheritance still saved
     } else {
       // ── Phase 2: maximise 401K, then personal savings ──
       var avail = Math.max(0, postTax - rent - exp);
       c401k  = Math.min(avail, capRem);
-      remInc = avail - c401k;     // 0 until cap hit
-      pSav   = remInc;            // 0 until cap hit, then full remainder
+      remInc = avail - c401k;                   // 0 until cap hit
+      pSav   = remInc + INHERIT_MONTHLY;        // inheritance always added on top
     }
 
     cum401k += c401k;
@@ -582,7 +584,8 @@ function renderBudget(s, budget) {
   html += '<div class="tbl-wrap"><table>';
   html += '<tr><th>Month</th><th>Gross</th><th>Post-Tax</th>'+
     '<th>401K</th><th>Cum 401K</th><th>Rent</th><th>Expenses</th>'+
-    '<th>Remaining</th><th>Tax Accrual</th><th>Tax Paid</th><th>Tax Gap</th><th>Personal Sav</th></tr>';
+    '<th>Remaining</th><th>Tax Accrual</th><th>Tax Paid</th><th>Tax Gap</th>'+
+    '<th>Personal Sav<sup title="Includes $1,500/mo inheritance">†</sup></th></tr>';
 
   var q1Cum = 0;
   var inPhase2 = false;
@@ -637,11 +640,16 @@ function renderBudget(s, budget) {
     html += accrualCell;
     html += taxCell;
     html += gapCell;
-    html += '<td class="'+(m.pSav>0?'pos':m.pSav<0?'neg':'neu')+'">'+
-      (m.pSav===0 && m.phase===1 ? '<span class="dim">accruing</span>' : fmt(m.pSav))+'</td>';
+    html += '<td class="'+(m.pSav>0?'pos':m.pSav<0?'neg':'neu')+'">'+fmt(m.pSav)+
+      (m.phase===1 ? '<br><span style="font-size:9.5px;color:var(--muted);font-weight:400">salary accruing</span>' : '')+'</td>';
     html += '</tr>';
   });
-  html += '</table></div></div>';
+  html += '</table></div>';
+  html += '<div style="margin-top:8px;font-size:11px;color:var(--muted);padding:0 2px">'+
+    '<sup>†</sup> Personal savings include a minimum of <strong>$1,500/mo</strong> ($18,000/yr) '+
+    'from a family inheritance disbursement. During Jan–Mar the salary portion accrues toward the '+
+    'estimated tax payment; the inheritance $1,500 is saved regardless.</div>';
+  html += '</div>';
 
   // ── annual summary ──
   html += '<div class="card"><div class="card-title">'+s.planningYear+' Annual Summary</div>';
@@ -655,8 +663,9 @@ function renderBudget(s, budget) {
     (budget.tot401k>=s.annual401kCap?' <span style="font-size:12px;color:var(--green)">✓ maxed</span>':'')+'</div></div>';
   html += '<div class="sum-item"><div class="sum-item-label">Employer 401K Match</div>'+
     '<div class="sum-item-value" style="color:var(--accent)">'+fmt(s.employer401kMatch)+'</div></div>';
-  html += '<div class="sum-item"><div class="sum-item-label">Monthly Personal Savings</div>'+
-    '<div class="sum-item-value" style="color:var(--green)">'+fmt(budget.totPSav)+'</div></div>';
+  html += '<div class="sum-item"><div class="sum-item-label">Personal Savings (incl. inheritance<sup>†</sup>)</div>'+
+    '<div class="sum-item-value" style="color:var(--green)">'+fmt(budget.totPSav)+'</div>'+
+    '<div style="font-size:11px;color:var(--muted);margin-top:2px">$18K/yr inheritance included</div></div>';
   html += '<div class="sum-item highlight"><div class="sum-item-label">Total '+s.planningYear+' Savings</div>'+
     '<div class="sum-item-value" style="color:var(--green)">'+fmt(budget.totSav)+'</div>'+
     '<div style="font-size:11px;color:var(--muted);margin-top:3px">401K + personal + bonus + match</div></div>';
