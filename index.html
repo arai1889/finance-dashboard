@@ -169,6 +169,7 @@ var S = {
   expectedTaxPayment: 7000, annual401kCap: 23500, rate401k: 0,
   bonusPct: 20, pctBonusSaved: 77, employer401kMatch: 10900,
   firstMonthFraction: 0.25, firstMonthNoExpenses: true, weddingGoal: 15000,
+  inheritanceMonthly: 1500,
   tab: 'coastfire'
 };
 
@@ -191,7 +192,7 @@ var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov',
 // Phase 1 (months 1–3): run at the user-set rate401k to accrue exactly the tax payment.
 // Phase 2 (months 4–12): funnel ALL remaining income into 401K until cap, then personal savings.
 // The April tax is paid from the Q1 accrued pool — it does NOT touch April's income.
-var INHERIT_MONTHLY = 1500;   // $18K/yr inheritance disbursement ÷ 12
+// inheritanceMonthly is now a user input on s; no global constant needed
 
 function computeBudget(s) {
   var months = [], cum401k = 0, mGross = s.annualSalary / 12;
@@ -218,13 +219,13 @@ function computeBudget(s) {
       // ── Phase 1: explicit rate, income reserved for tax ──
       c401k  = Math.min(postTax * (s.rate401k / 100), capRem);
       remInc = postTax - c401k - rent - exp;
-      pSav   = INHERIT_MONTHLY;  // salary accruing for tax; inheritance still saved
+      pSav   = s.inheritanceMonthly;  // salary accruing for tax; inheritance still saved
     } else {
       // ── Phase 2: maximise 401K, then personal savings ──
       var avail = Math.max(0, postTax - rent - exp);
       c401k  = Math.min(avail, capRem);
       remInc = avail - c401k;                   // 0 until cap hit
-      pSav   = remInc + INHERIT_MONTHLY;        // inheritance always added on top
+      pSav   = remInc + s.inheritanceMonthly;    // inheritance always added on top
     }
 
     cum401k += c401k;
@@ -721,7 +722,7 @@ function renderBudget(s, budget) {
   });
   html += '</table></div>';
   html += '<div style="margin-top:8px;font-size:11px;color:var(--muted);padding:0 2px">'+
-    '<sup>†</sup> Personal savings include a minimum of <strong>$1,500/mo</strong> ($18,000/yr) '+
+    '<sup>†</sup> Personal savings include a minimum of <strong>'+fmt(s.inheritanceMonthly)+'/mo</strong> ('+fmt(s.inheritanceMonthly*12)+'/yr) '+
     'from a family inheritance disbursement. During Jan–Mar the salary portion accrues toward the '+
     'estimated tax payment; the inheritance $1,500 is saved regardless.</div>';
   html += '</div>';
@@ -740,7 +741,7 @@ function renderBudget(s, budget) {
     '<div class="sum-item-value" style="color:var(--accent)">'+fmt(s.employer401kMatch)+'</div></div>';
   html += '<div class="sum-item"><div class="sum-item-label">Personal Savings (incl. inheritance<sup>†</sup>)</div>'+
     '<div class="sum-item-value" style="color:var(--green)">'+fmt(budget.totPSav)+'</div>'+
-    '<div style="font-size:11px;color:var(--muted);margin-top:2px">$18K/yr inheritance included</div></div>';
+    '<div style="font-size:11px;color:var(--muted);margin-top:2px">'+fmt(s.inheritanceMonthly*12)+'/yr inheritance included</div></div>';
   html += '<div class="sum-item highlight"><div class="sum-item-label">Total '+s.planningYear+' Savings</div>'+
     '<div class="sum-item-value" style="color:var(--green)">'+fmt(budget.totSav)+'</div>'+
     '<div style="font-size:11px;color:var(--muted);margin-top:3px">401K + personal + bonus + match</div></div>';
@@ -807,6 +808,7 @@ function renderSidebar(s) {
   h += mkInp('employer401kMatch','Employer Match ($)',s.employer401kMatch,100);
   h += mkInp('firstMonthFraction','First Month Fraction',s.firstMonthFraction,0.05);
   h += mkTog('firstMonthNoExpenses','First Mo. No Expenses',s.firstMonthNoExpenses);
+  h += mkInp('inheritanceMonthly','Inheritance/mo ($)',s.inheritanceMonthly,100);
   h += mkInp('weddingGoal','Wedding Goal ($)',s.weddingGoal,500);
   h += '<button class="opt-btn" onclick="runOpt()">Optimize Phase-1 401K Rate</button>';
   return h;
