@@ -330,6 +330,34 @@ function optimize401k(s) {
   return Math.round((lo + hi) / 2 * 100) / 100;
 }
 
+// ── Chart tooltip (hover) ──────────────────────────────────────────────────────
+function cfTip(e, age, nw, coast, fi) {
+  var tip = document.getElementById('cf-tip');
+  if (!tip) {
+    tip = document.createElement('div');
+    tip.id = 'cf-tip';
+    tip.style.cssText = 'position:fixed;background:#fff;border:1px solid #E4DDD2;border-radius:10px;'+
+      'padding:11px 15px;font-size:12px;line-height:2;box-shadow:0 4px 18px rgba(0,0,0,.13);'+
+      'pointer-events:none;z-index:9999;min-width:200px;color:#2D2D2D';
+    document.body.appendChild(tip);
+  }
+  tip.innerHTML =
+    '<div style="font-weight:700;font-size:12.5px;margin-bottom:2px;color:#2D2D2D">Age: '+age+'</div>'+
+    '<div>Net Worth: <strong>'+fmt(nw)+'</strong></div>'+
+    '<div>CoastFIRE number: <strong style="color:#5B7FA6">'+fmt(coast)+'</strong></div>'+
+    '<div>FIRE number: <strong style="color:#C06060">'+fmt(fi)+'</strong></div>';
+  var tx = e.clientX + 18, ty = e.clientY - 14;
+  var tw = 220;
+  if (tx + tw > window.innerWidth - 12) tx = e.clientX - tw - 12;
+  tip.style.left  = tx + 'px';
+  tip.style.top   = ty + 'px';
+  tip.style.display = 'block';
+}
+function cfTipHide() {
+  var tip = document.getElementById('cf-tip');
+  if (tip) tip.style.display = 'none';
+}
+
 // ── SVG chart ──────────────────────────────────────────────────────────────────
 // 4-series chart:
 //   gray dashed  = portfolio growing with contributions all the way to retirement
@@ -457,12 +485,14 @@ function buildChart(s, budget) {
     return '<text x="'+(pL-7)+'" y="'+(ys(v)+4)+'" text-anchor="end" font-size="10" fill="'+tc+'">'+fmtM(v)+'</text>';
   }).join('');
 
-  // X axis labels
-  svg += '<text x="'+pL+'" y="'+(H-pB+15)+'" text-anchor="middle" font-size="10" fill="'+tc+'">'+s.currentAge+'</text>';
-  svg += xticks.map(function(a) {
+  // X axis labels — skip 5-yr ticks that are within 3 years of either endpoint to avoid overlap
+  svg += '<text x="'+(pL+3)+'" y="'+(H-pB+15)+'" text-anchor="start" font-size="10" fill="'+tc+'">'+s.currentAge+'</text>';
+  svg += xticks.filter(function(a) {
+    return (a - s.currentAge) >= 3 && (s.retirementAge - a) >= 3;
+  }).map(function(a) {
     return '<text x="'+xs(a).toFixed(1)+'" y="'+(H-pB+15)+'" text-anchor="middle" font-size="10" fill="'+tc+'">'+a+'</text>';
   }).join('');
-  svg += '<text x="'+(W-pR)+'" y="'+(H-pB+15)+'" text-anchor="end" font-size="10" fill="'+tc+'">'+s.retirementAge+'</text>';
+  svg += '<text x="'+(W-pR-3)+'" y="'+(H-pB+15)+'" text-anchor="end" font-size="10" fill="'+tc+'">'+s.retirementAge+'</text>';
 
   // ── legend (top-left) ──
   var lx = pL + 6, ly = pT + 4;
@@ -489,6 +519,26 @@ function buildChart(s, budget) {
   svg += '<line x1="'+(lx+8)+'" y1="'+(ly+62)+'" x2="'+(lx+26)+'" y2="'+(ly+62)+
          '" stroke="#C06060" stroke-width="1.5" stroke-dasharray="5,3"/>';
   svg += '<text x="'+(lx+31)+'" y="'+(ly+66)+'" font-size="10.5" fill="'+tc+'">FIRE number ('+fmtM(FI)+')</text>';
+
+  // ── Invisible vertical hit strips for hover tooltip (one per data point) ──
+  // Rendered last so they sit on top of all chart elements
+  for (var hi = 0; hi < contribPts.length; hi++) {
+    var hAge  = contribPts[hi][0];
+    var hNw   = Math.round(coastPts[hi][1]);
+    var hCoast= Math.round(targetPts[hi][1]);
+    // strip spans from midpoint to previous to midpoint to next
+    var x1h = hi === 0
+      ? xs(hAge)
+      : xs((contribPts[hi-1][0] + hAge) / 2);
+    var x2h = hi === contribPts.length - 1
+      ? xs(hAge)
+      : xs((hAge + contribPts[hi+1][0]) / 2);
+    var stripW = Math.max(1, x2h - x1h);
+    svg += '<rect x="'+x1h.toFixed(1)+'" y="'+pT+'" width="'+stripW.toFixed(1)+'" height="'+(H-pT-pB)+'"'+
+      ' fill="transparent" style="cursor:crosshair"'+
+      ' onmouseover="cfTip(event,'+hAge+','+hNw+','+hCoast+','+Math.round(FI)+')"'+
+      ' onmouseout="cfTipHide()"/>';
+  }
 
   svg += '</svg>';
   return svg;
