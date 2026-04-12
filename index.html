@@ -250,63 +250,65 @@ function computeBudget(s) {
 }
 
 // ── CoastFIRE solver ───────────────────────────────────────────────────────────
-// Model: current assets are already "there" and compound separately.
-// CoastFIRE target = FI / (1 + realRet)^(retirementAge - currentAge)  — fixed in today's dollars.
-// We find age c where SAVINGS CONTRIBUTIONS ALONE have compounded to the target:
-//   annual_savings × [(1+r)^(c − currentAge) − 1] / r  =  CoastFIRE_target
-// real_return uses the Fisher linear approximation (r − inflation) → matches ~$1,363,891.
+// Both lines grow at the real return rate (r − inflation).
+//
+// CoastFIRE target line: target(year) = target0 × (1+realRet)^year
+//   where target0 = FI / (1+realRet)^(retirementYears) — the PV of FI today.
+//   At retirement it equals the FI number exactly.
+//
+// Portfolio line: portfolio(year) = portfolio(year-1) × (1+realRet)  +  annualSavFV
+//   where annualSavFV = FV at year-end of 12 equal monthly deposits:
+//   = (annualSavings/12) × Σ(k=0..11) (1+realRet)^(k/12)
+//   (month 1 deposit compounds 11/12 year, month 12 compounds 0/12)
+//
+// CoastFIRE = the year the portfolio line first crosses (≥) the target line.
+// After that age, existing assets alone will compound to FI by retirement.
 function computeCoastFIRE(s, annualSavings) {
-  var r       = s.returnRate    / 100;
-  var inf     = s.inflationRate / 100;
-  var realRet = r - inf;                              // Fisher linear approx
-  var FI      = s.targetSpending / (s.swr / 100);    // $10 M with defaults
+  var realRet    = s.returnRate/100 - s.inflationRate/100;
+  var FI         = s.targetSpending / (s.swr / 100);
+  var yrsToRetire = s.retirementAge - s.currentAge;
+  var target0    = FI / Math.pow(1 + realRet, yrsToRetire);
 
-  // CoastFIRE target is a FIXED amount in today's dollars (does not vary with c)
-  var target = FI / Math.pow(1 + realRet, s.retirementAge - s.currentAge);
+  // FV of monthly deposits within one year (deposits at start of each month)
+  var monthlySav = annualSavings / 12;
+  var annSavFV   = 0;
+  for (var k = 0; k < 12; k++) annSavFV += monthlySav * Math.pow(1 + realRet, k / 12);
 
-  // Savings-only FV at age c (current assets excluded)
-  function savFV(c) {
-    var t = c - s.currentAge;
-    if (t <= 0) return 0;
-    if (Math.abs(r) < 1e-12) return annualSavings * t;
-    return annualSavings * (Math.pow(1 + r, t) - 1) / r;
+  console.log('[CoastFIRE] realRet=%.4f  FI=%.0f  target0=%.0f  annualSav=%.0f  annSavFV=%.0f',
+    realRet, FI, target0, annualSavings, annSavFV);
+
+  var port   = s.currentAssets;
+  var tgt    = target0;
+  var maxYrs = Math.ceil(yrsToRetire) + 1;
+
+  // Already coasting?
+  if (port >= tgt) {
+    return { coastAge: s.currentAge, coastAgeRounded: s.currentAge,
+      yearsToCoast: 0, target: target0, FI: FI, achieved: true };
   }
 
-  console.log('[CoastFIRE] r=%f inf=%f realRet=%f FI=%f target=%f annualSav=%f',
-    r, inf, realRet, FI, target, annualSavings);
+  for (var yr = 1; yr <= maxYrs; yr++) {
+    var prevPort = port, prevTgt = tgt;
+    port = port * (1 + realRet) + annSavFV;
+    tgt  = tgt  * (1 + realRet);
+    console.log('[CoastFIRE] year %2d  age %.1f  port=%.0f  tgt=%.0f  gap=%.0f',
+      yr, s.currentAge + yr, port, tgt, port - tgt);
 
-  // Already hit target with current savings rate at time 0?
-  if (savFV(s.currentAge) >= target) {
-    console.log('[CoastFIRE] Already at CoastFIRE (or no savings needed).');
-    var raw0 = s.currentAge;
-    return { coastAge: raw0, coastAgeRounded: Math.round(raw0 * 2) / 2,
-      yearsToCoast: 0, target: target, achieved: true };
-  }
-  // Never reachable before retirement?
-  if (savFV(s.retirementAge) < target) {
-    console.log('[CoastFIRE] Not reachable before retirement.');
-    return { coastAge: s.retirementAge, coastAgeRounded: s.retirementAge,
-      yearsToCoast: s.retirementAge - s.currentAge,
-      target: target, achieved: false, unreachable: true };
-  }
-
-  var lo = s.currentAge, hi = s.retirementAge;
-  for (var i = 0; i < 200; i++) {
-    var mid  = (lo + hi) / 2;
-    var diff = savFV(mid) - target;
-    console.log('[CoastFIRE] iter %d  c=%.4f  savFV=%.0f  tgt=%.0f  diff=%.0f',
-      i, mid, savFV(mid), target, diff);
-    if (diff < 0) lo = mid; else hi = mid;
-    if (hi - lo < 0.001) break;
+    if (port >= tgt) {
+      // Linear interpolation for sub-year precision
+      var prevGap = prevPort - prevTgt;    // negative
+      var newGap  = port - tgt;            // positive
+      var frac    = -prevGap / (newGap - prevGap);
+      var rawAge  = s.currentAge + (yr - 1) + frac;
+      var rndAge  = Math.round(rawAge * 2) / 2;
+      console.log('[CoastFIRE] → crossing at year %.3f  age %.3f  rounded %.1f', yr-1+frac, rawAge, rndAge);
+      return { coastAge: rawAge, coastAgeRounded: rndAge,
+        yearsToCoast: rawAge - s.currentAge, target: target0, FI: FI, achieved: false };
+    }
   }
 
-  var rawAge    = (lo + hi) / 2;
-  var roundedAge = Math.round(rawAge * 2) / 2;      // nearest 0.5
-  console.log('[CoastFIRE] rawAge=%.4f  roundedAge=%.1f  years=%.3f',
-    rawAge, roundedAge, rawAge - s.currentAge);
-
-  return { coastAge: rawAge, coastAgeRounded: roundedAge,
-    yearsToCoast: rawAge - s.currentAge, target: target, achieved: false };
+  return { coastAge: s.retirementAge, coastAgeRounded: s.retirementAge,
+    yearsToCoast: yrsToRetire, target: target0, FI: FI, achieved: false, unreachable: true };
 }
 
 // ── 401K Phase-1 optimizer ─────────────────────────────────────────────────────
@@ -327,116 +329,164 @@ function optimize401k(s) {
 }
 
 // ── SVG chart ──────────────────────────────────────────────────────────────────
-// Shows: savings-contributions-only FV curve (blue) vs fixed CoastFIRE target (gold dashed).
-// Current assets are excluded from the curve — they compound separately and are "already there."
+// 4-series chart:
+//   gray dashed  = portfolio growing with contributions all the way to retirement
+//   blue line    = CoastFIRE target (target0 growing at realRet → FI at retirement)
+//   green + fill = net worth coasting (contributions stop at CoastFIRE age, then compound only)
+//   red dashed   = FIRE number (horizontal)
 function buildChart(s, budget) {
-  var r       = s.returnRate    / 100;
-  var inf     = s.inflationRate / 100;
-  var realRet = r - inf;
-  var FI      = s.targetSpending / (s.swr / 100);
-  var ann     = budget.totSav;
-  var span    = s.retirementAge - s.currentAge;
-  var steps   = 120;
-  var target  = FI / Math.pow(1 + realRet, span);  // fixed CoastFIRE target today
+  var realRet  = s.returnRate/100 - s.inflationRate/100;
+  var FI       = s.targetSpending / (s.swr / 100);
+  var ann      = budget.totSav;
+  var span     = s.retirementAge - s.currentAge;
+  var cf       = computeCoastFIRE(s, ann);
+  var target0  = cf.target;   // CoastFIRE number in today's dollars
 
-  // Savings-only FV points
-  var savPts = [];
-  var maxV   = target * 1.15;  // ensure target line always visible, scale headroom
-  for (var i = 0; i <= steps; i++) {
-    var c = s.currentAge + span * i / steps;
-    var t = c - s.currentAge;
-    var sv = t <= 0 ? 0
-      : (Math.abs(r) < 1e-12 ? ann * t : ann * (Math.pow(1+r,t)-1) / r);
-    savPts.push([c, sv]);
-    if (sv > maxV) maxV = sv;
+  // FV of 12 monthly contributions within a year (same formula as solver)
+  var monthlySav = ann / 12;
+  var annSavFV   = 0;
+  for (var k = 0; k < 12; k++) annSavFV += monthlySav * Math.pow(1 + realRet, k / 12);
+
+  // Build year-by-year series
+  var contribPts = [[s.currentAge, s.currentAssets]];   // gray dashed
+  var targetPts  = [[s.currentAge, target0]];            // blue
+  var coastPts   = [[s.currentAge, s.currentAssets]];   // green + fill
+
+  var portC       = s.currentAssets;
+  var portK       = s.currentAssets;
+  var tgt         = target0;
+  var coastDone   = cf.achieved;
+  var numYears    = Math.ceil(span) + 2;
+
+  for (var yr = 1; yr <= numYears; yr++) {
+    var age = s.currentAge + yr;
+    if (age > s.retirementAge + 0.1) break;
+
+    portC = portC * (1 + realRet) + annSavFV;
+    tgt   = tgt   * (1 + realRet);
+
+    // portCoast: same as portContrib until the year after CoastFIRE age, then just compound
+    if (!coastDone && (s.currentAge + yr - 1) < cf.coastAge) {
+      portK = portK * (1 + realRet) + annSavFV;
+      // check if we've now passed the coast age after this year's growth
+      if (age >= cf.coastAge) coastDone = true;
+    } else {
+      coastDone = true;
+      portK = portK * (1 + realRet);
+    }
+
+    contribPts.push([age, portC]);
+    targetPts.push([age, tgt]);
+    coastPts.push([age, portK]);
   }
 
-  var cf  = computeCoastFIRE(s, ann);
-  var W=680, H=260, pL=76, pR=24, pT=20, pB=40;
-  var cW  = W-pL-pR, cH = H-pT-pB;
+  // Scale: top of chart = FI × 1.12, but at least max of portContrib
+  var maxC = 0;
+  for (var i = 0; i < contribPts.length; i++) if (contribPts[i][1] > maxC) maxC = contribPts[i][1];
+  var maxV = Math.max(FI * 1.12, maxC * 1.05);
+
+  var W=700, H=280, pL=76, pR=28, pT=24, pB=40;
+  var cW = W-pL-pR, cH = H-pT-pB;
 
   function xs(age) { return pL + (age - s.currentAge) / span * cW; }
-  function ys(v)   { return H - pB - Math.min(1, v / maxV) * cH; }
+  function ys(v)   { return H - pB - Math.min(1, Math.max(0, v / maxV)) * cH; }
   function mkPath(pts) {
-    return pts.map(function(p, idx){
+    return pts.map(function(p, idx) {
       return (idx===0?'M':'L') + xs(p[0]).toFixed(1) + ',' + ys(p[1]).toFixed(1);
     }).join(' ');
   }
 
-  var tc = '#7A7168', gc = '#F0EAE0';
+  var tc = '#7A7168', gc = '#E8E2D8';
 
-  // Y-axis ticks
+  // Y-axis ticks (6 levels)
   var yticks = [];
   for (var k = 0; k <= 5; k++) yticks.push(maxV * k / 5);
+
   // X-axis ticks every 5 years
   var xticks = [];
-  var xStart = Math.ceil(s.currentAge / 5) * 5;
-  for (var a = xStart; a < s.retirementAge; a += 5) xticks.push(a);
-
-  // CoastFIRE intersection point on savings curve
-  var cx   = xs(cf.coastAge);
-  var cAge = cf.coastAge;
-  var ct   = cAge - s.currentAge;
-  var cSav = ct <= 0 ? 0
-    : (Math.abs(r)<1e-12 ? ann*ct : ann*(Math.pow(1+r,ct)-1)/r);
-  var cy   = ys(cSav);
-
-  // Target y-position (horizontal line)
-  var tgtY = ys(target).toFixed(1);
+  var xStart = Math.ceil((s.currentAge + 0.01) / 5) * 5;
+  for (var a = xStart; a <= s.retirementAge; a += 5) xticks.push(a);
 
   var svg = '<svg class="chart" viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg">';
 
   // grid lines
-  svg += yticks.map(function(v){
+  svg += yticks.map(function(v) {
     var y = ys(v).toFixed(1);
     return '<line x1="'+pL+'" y1="'+y+'" x2="'+(W-pR)+'" y2="'+y+'" stroke="'+gc+'" stroke-width="1"/>';
   }).join('');
 
-  // faint area under savings curve
-  var areaD = mkPath(savPts)+' L'+(W-pR)+','+(H-pB)+' L'+pL+','+(H-pB)+' Z';
-  svg += '<path d="'+areaD+'" fill="rgba(91,127,166,.07)"/>';
+  // Red dashed FIRE number
+  var fiY = ys(FI).toFixed(1);
+  svg += '<line x1="'+pL+'" y1="'+fiY+'" x2="'+(W-pR)+'" y2="'+fiY+
+         '" stroke="#C06060" stroke-width="1.5" stroke-dasharray="6,4" opacity=".9"/>';
 
-  // savings-only curve (blue)
-  svg += '<path d="'+mkPath(savPts)+'" stroke="#5B7FA6" fill="none" stroke-width="2.5" stroke-linejoin="round"/>';
+  // Green fill under coast portfolio
+  var lastCoast = coastPts[coastPts.length-1];
+  var fillD = mkPath(coastPts) +
+    ' L'+xs(lastCoast[0]).toFixed(1)+','+(H-pB)+
+    ' L'+pL+','+(H-pB)+' Z';
+  svg += '<path d="'+fillD+'" fill="rgba(94,158,110,.13)"/>';
 
-  // CoastFIRE target — fixed horizontal dashed line (gold)
-  svg += '<line x1="'+pL+'" y1="'+tgtY+'" x2="'+(W-pR)+'" y2="'+tgtY+
-         '" stroke="#B8893A" stroke-width="2" stroke-dasharray="7,4"/>';
+  // Gray dashed: portfolio with continued contributions
+  svg += '<path d="'+mkPath(contribPts)+'" stroke="#A0978C" fill="none" stroke-width="2"'+
+         ' stroke-dasharray="7,4" stroke-linejoin="round"/>';
 
-  // CoastFIRE vertical + intersection dot
+  // Blue: CoastFIRE target line
+  svg += '<path d="'+mkPath(targetPts)+'" stroke="#5B7FA6" fill="none" stroke-width="2.5"'+
+         ' stroke-linejoin="round"/>';
+
+  // Green: coast portfolio
+  svg += '<path d="'+mkPath(coastPts)+'" stroke="#5E9E6E" fill="none" stroke-width="2.5"'+
+         ' stroke-linejoin="round"/>';
+
+  // CoastFIRE intersection dot
   if (!cf.unreachable && !cf.achieved) {
-    svg += '<line x1="'+cx.toFixed(1)+'" y1="'+pT+'" x2="'+cx.toFixed(1)+'" y2="'+(H-pB)+
-           '" stroke="#5E9E6E" stroke-width="1.5" stroke-dasharray="4,3" opacity=".75"/>';
-    svg += '<circle cx="'+cx.toFixed(1)+'" cy="'+cy.toFixed(1)+'" r="6" fill="#5E9E6E" stroke="#fff" stroke-width="2.5"/>';
+    var dotX  = xs(cf.coastAge).toFixed(1);
+    var dotVal = target0 * Math.pow(1 + realRet, cf.yearsToCoast);
+    var dotY  = ys(dotVal).toFixed(1);
+    svg += '<circle cx="'+dotX+'" cy="'+dotY+'" r="6.5" fill="#5E9E6E" stroke="#fff" stroke-width="2.5"/>';
+    // small age label above dot
+    svg += '<text x="'+dotX+'" y="'+(parseFloat(dotY)-11)+'" text-anchor="middle"'+
+           ' font-size="10" font-weight="600" fill="#5E9E6E">'+cf.coastAgeRounded+'</text>';
   }
 
   // Y axis labels
-  svg += yticks.map(function(v){
+  svg += yticks.map(function(v) {
     return '<text x="'+(pL-7)+'" y="'+(ys(v)+4)+'" text-anchor="end" font-size="10" fill="'+tc+'">'+fmtM(v)+'</text>';
   }).join('');
 
   // X axis labels
-  svg += xticks.map(function(a){
+  svg += '<text x="'+pL+'" y="'+(H-pB+15)+'" text-anchor="middle" font-size="10" fill="'+tc+'">'+s.currentAge+'</text>';
+  svg += xticks.map(function(a) {
     return '<text x="'+xs(a).toFixed(1)+'" y="'+(H-pB+15)+'" text-anchor="middle" font-size="10" fill="'+tc+'">'+a+'</text>';
   }).join('');
-  svg += '<text x="'+pL+'" y="'+(H-pB+15)+'" text-anchor="middle" font-size="10" fill="'+tc+'">'+s.currentAge+'</text>';
   svg += '<text x="'+(W-pR)+'" y="'+(H-pB+15)+'" text-anchor="end" font-size="10" fill="'+tc+'">'+s.retirementAge+'</text>';
 
-  // ── legend pinned top-LEFT (always fully inside chart) ──
-  var lx = pL + 4, ly = pT + 4;
-  var lw = 168, lh = cf.unreachable || cf.achieved ? 36 : 50;
+  // ── legend (top-left) ──
+  var lx = pL + 6, ly = pT + 4;
+  var lw = 218, lh = 76;
   svg += '<rect x="'+lx+'" y="'+ly+'" width="'+lw+'" height="'+lh+
-         '" rx="5" fill="rgba(255,255,255,.92)" stroke="'+gc+'"/>';
-  svg += '<line x1="'+(lx+8)+'" y1="'+(ly+12)+'" x2="'+(lx+24)+'" y2="'+(ly+12)+
+         '" rx="5" fill="rgba(255,255,255,.93)" stroke="'+gc+'" stroke-width="1"/>';
+
+  // row 1: gray dashed
+  svg += '<line x1="'+(lx+8)+'" y1="'+(ly+14)+'" x2="'+(lx+26)+'" y2="'+(ly+14)+
+         '" stroke="#A0978C" stroke-width="2" stroke-dasharray="5,3"/>';
+  svg += '<text x="'+(lx+31)+'" y="'+(ly+18)+'" font-size="10.5" fill="'+tc+'">With contributions</text>';
+
+  // row 2: blue
+  svg += '<line x1="'+(lx+8)+'" y1="'+(ly+30)+'" x2="'+(lx+26)+'" y2="'+(ly+30)+
          '" stroke="#5B7FA6" stroke-width="2.5"/>';
-  svg += '<text x="'+(lx+28)+'" y="'+(ly+16)+'" font-size="11" fill="'+tc+'">Savings contributions</text>';
-  svg += '<line x1="'+(lx+8)+'" y1="'+(ly+27)+'" x2="'+(lx+24)+'" y2="'+(ly+27)+
-         '" stroke="#B8893A" stroke-width="2" stroke-dasharray="5,3"/>';
-  svg += '<text x="'+(lx+28)+'" y="'+(ly+31)+'" font-size="11" fill="'+tc+'">CoastFIRE target ('+fmtM(target)+')</text>';
-  if (!cf.unreachable && !cf.achieved) {
-    svg += '<circle cx="'+(lx+8)+'" cy="'+(ly+43)+'" r="5" fill="#5E9E6E"/>';
-    svg += '<text x="'+(lx+18)+'" y="'+(ly+47)+'" font-size="11" fill="'+tc+'">Coast at age '+cf.coastAgeRounded+'</text>';
-  }
+  svg += '<text x="'+(lx+31)+'" y="'+(ly+34)+'" font-size="10.5" fill="'+tc+'">CoastFIRE number</text>';
+
+  // row 3: green
+  svg += '<line x1="'+(lx+8)+'" y1="'+(ly+46)+'" x2="'+(lx+26)+'" y2="'+(ly+46)+
+         '" stroke="#5E9E6E" stroke-width="2.5"/>';
+  svg += '<text x="'+(lx+31)+'" y="'+(ly+50)+'" font-size="10.5" fill="'+tc+'">Net worth (coasting)</text>';
+
+  // row 4: red dashed
+  svg += '<line x1="'+(lx+8)+'" y1="'+(ly+62)+'" x2="'+(lx+26)+'" y2="'+(ly+62)+
+         '" stroke="#C06060" stroke-width="1.5" stroke-dasharray="5,3"/>';
+  svg += '<text x="'+(lx+31)+'" y="'+(ly+66)+'" font-size="10.5" fill="'+tc+'">FIRE number ('+fmtM(FI)+')</text>';
 
   svg += '</svg>';
   return svg;
@@ -497,11 +547,10 @@ function renderCoastFire(s, budget) {
   html += '</div>'; // close timeline card
 
   // ── chart ──
-  html += '<div class="card"><div class="card-title">Savings Contributions vs. CoastFIRE Target</div>'+
+  html += '<div class="card"><div class="card-title">Portfolio vs. CoastFIRE Target</div>'+
     '<div style="font-size:11.5px;color:var(--muted);margin-bottom:10px">'+
-    'Blue curve = compounded value of new contributions only. '+
-    'Gold dashed = CoastFIRE target ('+fmt(cf.target)+' in today\'s dollars). '+
-    'Current assets ('+fmt(s.currentAssets)+') compound separately.</div>'+
+    'Both your portfolio and the CoastFIRE target grow at the real return rate ('+pct((s.returnRate-s.inflationRate),2)+'). '+
+    'Green dot = age '+cf.coastAgeRounded+': portfolio crosses the CoastFIRE number — contributions can stop.</div>'+
     '<div class="chart-wrap">'+buildChart(s, budget)+'</div></div>';
 
   // ── assumptions ──
