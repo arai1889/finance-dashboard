@@ -330,8 +330,11 @@ function optimize401k(s) {
   return Math.round((lo + hi) / 2 * 100) / 100;
 }
 
-// ── Chart tooltip (hover) ──────────────────────────────────────────────────────
-function cfTip(e, age, nw, coast, fi) {
+// ── Chart tooltip + sliding dots (hover) ───────────────────────────────────────
+// hx, hy1, hy2  = SVG-space coords for the two sliding dots
+// d1Blue        = 1 → dot1 is on the blue CoastFIRE line; 0 → switched to gray contrib line
+function cfTip(e, age, nw, coast, fi, hx, hy1, hy2, d1Blue) {
+  // ── tooltip card ──
   var tip = document.getElementById('cf-tip');
   if (!tip) {
     tip = document.createElement('div');
@@ -347,15 +350,31 @@ function cfTip(e, age, nw, coast, fi) {
     '<div>CoastFIRE number: <strong style="color:#5B7FA6">'+fmt(coast)+'</strong></div>'+
     '<div>FIRE number: <strong style="color:#C06060">'+fmt(fi)+'</strong></div>';
   var tx = e.clientX + 18, ty = e.clientY - 14;
-  var tw = 220;
-  if (tx + tw > window.innerWidth - 12) tx = e.clientX - tw - 12;
-  tip.style.left  = tx + 'px';
-  tip.style.top   = ty + 'px';
+  if (tx + 220 > window.innerWidth - 12) tx = e.clientX - 232;
+  tip.style.left = tx + 'px';
+  tip.style.top  = ty + 'px';
   tip.style.display = 'block';
+
+  // ── sliding dots + crosshair ──
+  if (hx === undefined) return;
+  var dot1  = document.getElementById('cf-dot-1');
+  var dot2  = document.getElementById('cf-dot-2');
+  var xhair = document.getElementById('cf-xhair');
+  if (xhair) { xhair.setAttribute('x1', hx); xhair.setAttribute('x2', hx); xhair.setAttribute('display','inline'); }
+  if (dot1)  {
+    dot1.setAttribute('cx', hx); dot1.setAttribute('cy', hy1);
+    dot1.setAttribute('fill', d1Blue ? '#5B7FA6' : '#A0978C');
+    dot1.setAttribute('display','inline');
+  }
+  if (dot2)  { dot2.setAttribute('cx', hx); dot2.setAttribute('cy', hy2); dot2.setAttribute('display','inline'); }
 }
 function cfTipHide() {
   var tip = document.getElementById('cf-tip');
   if (tip) tip.style.display = 'none';
+  ['cf-dot-1','cf-dot-2','cf-xhair'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.setAttribute('display','none');
+  });
 }
 
 // ── SVG chart ──────────────────────────────────────────────────────────────────
@@ -469,16 +488,12 @@ function buildChart(s, budget) {
   svg += '<path d="'+mkPath(coastPts)+'" stroke="#5E9E6E" fill="none" stroke-width="2.5"'+
          ' stroke-linejoin="round"/>';
 
-  // CoastFIRE intersection dot
-  if (!cf.unreachable && !cf.achieved) {
-    var dotX  = xs(cf.coastAge).toFixed(1);
-    var dotVal = target0 * Math.pow(1 + realRet, cf.yearsToCoast);
-    var dotY  = ys(dotVal).toFixed(1);
-    svg += '<circle cx="'+dotX+'" cy="'+dotY+'" r="6.5" fill="#5E9E6E" stroke="#fff" stroke-width="2.5"/>';
-    // small age label above dot
-    svg += '<text x="'+dotX+'" y="'+(parseFloat(dotY)-11)+'" text-anchor="middle"'+
-           ' font-size="10" font-weight="600" fill="#5E9E6E">'+cf.coastAgeRounded+'</text>';
-  }
+  // ── Reusable hidden elements: crosshair + two sliding dots ──
+  // These are shown/moved by cfTip() on hover; hidden by cfTipHide() on mouse-leave.
+  svg += '<line id="cf-xhair" x1="0" y1="'+pT+'" x2="0" y2="'+(H-pB)+
+         '" stroke="#C8C2B8" stroke-width="1" stroke-dasharray="3,2" display="none"/>';
+  svg += '<circle id="cf-dot-1" cx="0" cy="0" r="6" fill="#5B7FA6" stroke="#fff" stroke-width="2.5" display="none"/>';
+  svg += '<circle id="cf-dot-2" cx="0" cy="0" r="6" fill="#5E9E6E" stroke="#fff" stroke-width="2.5" display="none"/>';
 
   // Y axis labels
   svg += yticks.map(function(v) {
@@ -520,23 +535,33 @@ function buildChart(s, budget) {
          '" stroke="#C06060" stroke-width="1.5" stroke-dasharray="5,3"/>';
   svg += '<text x="'+(lx+31)+'" y="'+(ly+66)+'" font-size="10.5" fill="'+tc+'">FIRE number ('+fmtM(FI)+')</text>';
 
-  // ── Invisible vertical hit strips for hover tooltip (one per data point) ──
-  // Rendered last so they sit on top of all chart elements
+  // ── Invisible vertical hit strips — hover drives tooltip + sliding dots ──
+  // Rendered last so they sit on top of all chart elements.
   for (var hi = 0; hi < contribPts.length; hi++) {
-    var hAge  = contribPts[hi][0];
-    var hNw   = Math.round(coastPts[hi][1]);
-    var hCoast= Math.round(targetPts[hi][1]);
-    // strip spans from midpoint to previous to midpoint to next
+    var hAge   = contribPts[hi][0];
+    var hNw    = Math.round(coastPts[hi][1]);
+    var hCoast = Math.round(targetPts[hi][1]);
+
+    // Dot 1: follows CoastFIRE target (blue) until crossing, then contrib line (gray)
+    var hD1Blue = (hAge <= cf.coastAge) ? 1 : 0;
+    var hY1     = hD1Blue ? ys(targetPts[hi][1]) : ys(contribPts[hi][1]);
+    // Dot 2: always on the coasting net-worth line (green)
+    var hY2     = ys(coastPts[hi][1]);
+    var hX      = xs(hAge);
+
+    // strip spans from midpoint-to-prev to midpoint-to-next
     var x1h = hi === 0
-      ? xs(hAge)
+      ? pL
       : xs((contribPts[hi-1][0] + hAge) / 2);
     var x2h = hi === contribPts.length - 1
-      ? xs(hAge)
+      ? (W - pR)
       : xs((hAge + contribPts[hi+1][0]) / 2);
     var stripW = Math.max(1, x2h - x1h);
+
     svg += '<rect x="'+x1h.toFixed(1)+'" y="'+pT+'" width="'+stripW.toFixed(1)+'" height="'+(H-pT-pB)+'"'+
       ' fill="transparent" style="cursor:crosshair"'+
-      ' onmouseover="cfTip(event,'+hAge+','+hNw+','+hCoast+','+Math.round(FI)+')"'+
+      ' onmouseover="cfTip(event,'+hAge+','+hNw+','+hCoast+','+Math.round(FI)+','+
+        hX.toFixed(2)+','+hY1.toFixed(2)+','+hY2.toFixed(2)+','+hD1Blue+')"'+
       ' onmouseout="cfTipHide()"/>';
   }
 
