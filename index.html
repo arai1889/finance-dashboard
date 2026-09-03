@@ -161,7 +161,7 @@ window.onerror = function(msg, src, line, col, err) {
 
 // ── state ──────────────────────────────────────────────────────────────────────
 var S = {
-  currentAge: 29.5, retirementAge: 60,
+  currentAge: 29.5, retirementAge: 60, semiRetirementAge: 51,
   brokerageAssets: 200000, iraAssets: 380000,
   targetSpending: 200000, swr: 2, returnRate: 10, inflationRate: 3.25,
   planningYear: 2027, annualSalary: 200000, taxRate: 30,
@@ -870,6 +870,7 @@ function renderSidebar(s) {
   h += '<div class="sec-label">Retirement</div>';
   h += mkInp('currentAge','Current Age',s.currentAge,0.5);
   h += mkInp('retirementAge','Retirement Age',s.retirementAge,1);
+  h += mkInp('semiRetirementAge','Semi-Retirement Age',s.semiRetirementAge,1);
   h += mkInp('brokerageAssets','Brokerage ($)',s.brokerageAssets,1000);
   h += mkInp('iraAssets','IRA / 401K ($)',s.iraAssets,1000);
   h += mkInp('targetSpending','Target Spending/yr ($)',s.targetSpending,1000);
@@ -916,6 +917,9 @@ function computeAccounts(s, budget) {
   var brokFV = annFV(annBrok);
   var iraFV  = annFV(annIRA);
 
+  var semiAge = s.semiRetirementAge || 51;
+  var brokerageWithdrawal = 600000; // every 3 years starting at semiRetirementAge
+
   var brok = s.brokerageAssets, ira = s.iraAssets;
   var pts  = [[s.currentAge, brok, ira]];
   var span = s.retirementAge - s.currentAge;
@@ -926,6 +930,10 @@ function computeAccounts(s, budget) {
     var contrib = (s.currentAge + yr - 1) < cf.coastAge;
     brok = brok * (1 + realRet) + (contrib ? brokFV : 0);
     ira  = ira  * (1 + realRet) + (contrib ? iraFV  : 0);
+    // Apply $600K brokerage withdrawal every 3 years starting at semiRetirementAge
+    if (age >= semiAge && Math.round((age - semiAge) * 1000) % 3000 < 1) {
+      brok = Math.max(0, brok - brokerageWithdrawal);
+    }
     pts.push([age, brok, ira]);
   }
 
@@ -981,6 +989,15 @@ function buildAccountsChart(s, acc) {
     var y = ys(v).toFixed(1);
     return '<line x1="'+pL+'" y1="'+y+'" x2="'+(W-pR)+'" y2="'+y+'" stroke="'+gc+'" stroke-width="1"/>';
   }).join('');
+
+  // vertical marker: semi-retirement age
+  var semiAgeC = s.semiRetirementAge || 51;
+  if (semiAgeC > s.currentAge && semiAgeC < s.retirementAge) {
+    var semiX = xs(semiAgeC).toFixed(1);
+    svg += '<line x1="'+semiX+'" y1="'+pT+'" x2="'+semiX+'" y2="'+(H-pB)+
+           '" stroke="#5B7FA6" stroke-width="1.5" stroke-dasharray="4,3" opacity=".6"/>';
+    svg += '<text x="'+semiX+'" y="'+(pT-4)+'" text-anchor="middle" font-size="9.5" fill="#5B7FA6">Semi-ret. '+semiAgeC+'</text>';
+  }
 
   // vertical marker: CoastFIRE age
   if (!cf.achieved && !cf.unreachable && cf.coastAge <= s.retirementAge) {
@@ -1107,15 +1124,16 @@ function renderAccounts(s, budget) {
   var cf   = acc.cf;
   var html = '';
 
+  var semiAge = s.semiRetirementAge || 51;
   // projected values at milestone ages
-  var at50   = acc.atAge(50);
+  var atSemi = acc.atAge(semiAge);
   var at59h  = acc.atAge(59.5);
   var atRet  = acc.atAge(s.retirementAge);
 
   html += '<div class="stat-grid">';
-  html += '<div class="stat"><div class="stat-label">Brokerage at Age 50</div>'+
-    '<div class="stat-value" style="color:var(--accent)">'+fmtM(at50[0])+'</div>'+
-    '<div class="stat-sub">personal + bonus savings compounding</div></div>';
+  html += '<div class="stat"><div class="stat-label">Brokerage at Semi-Retirement ('+semiAge+')</div>'+
+    '<div class="stat-value" style="color:var(--accent)">'+fmtM(atSemi[0])+'</div>'+
+    '<div class="stat-sub">after first $600K withdrawal at age '+semiAge+'</div></div>';
   html += '<div class="stat"><div class="stat-label">IRA at Age 59.5</div>'+
     '<div class="stat-value" style="color:var(--amber)">'+fmtM(at59h[1])+'</div>'+
     '<div class="stat-sub">401K + employer match compounding</div></div>';
@@ -1138,7 +1156,8 @@ function renderAccounts(s, budget) {
   html += '</div>';
   html += '<div style="font-size:11.5px;color:var(--muted);margin-top:10px">'+
     'Contributions stop at CoastFIRE age <strong>'+cf.coastAgeRounded+'</strong>. '+
-    'Both accounts continue compounding at the real return rate ('+pct(s.returnRate-s.inflationRate,2)+') until retirement.</div>';
+    'Both accounts continue compounding at the real return rate ('+pct(s.returnRate-s.inflationRate,2)+') until retirement. '+
+    'Brokerage takes a <strong>$600K withdrawal every 3 years</strong> starting at semi-retirement age <strong>'+semiAge+'</strong> (ages '+semiAge+', '+(semiAge+3)+', '+(semiAge+6)+', …).</div>';
   html += '</div>';
 
   // chart
