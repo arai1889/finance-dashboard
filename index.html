@@ -164,10 +164,10 @@ var S = {
   currentAge: 29.5, retirementAge: 60, semiRetirementAge: 51,
   brokerageAssets: 200000, iraAssets: 380000,
   targetSpending: 200000, swr: 2, returnRate: 10, inflationRate: 3.25,
-  planningYear: 2027, annualSalary: 200000, taxRate: 30,
-  monthlyExpenses: 2500, monthlyRent: 3100, rentFreeMonths: 1,
+  planningYear: 2027, annualSalary: 200000, taxRate: 33.5,
+  monthlyExpenses: 2250, monthlyRent: 3600, rentFreeMonths: 1,
   expectedTaxPayment: 13500, annual401kCap: 23500, rate401k: 0,
-  bonusPct: 20, pctBonusSaved: 77, employer401kMatch: 11500,
+  bonusPct: 8.48, pctBonusSaved: 77, employer401kMatch: 11500,
   firstMonthFraction: 0.25, firstMonthNoExpenses: true, weddingGoal: 15000,
   inheritanceMonthly: 1500, annualDiscretionary: 0,
   tab: 'coastfire'
@@ -196,7 +196,7 @@ function totalAssets(s) { return (s.brokerageAssets || 0) + (s.iraAssets || 0); 
 // inheritanceMonthly is now a user input on s; no global constant needed
 
 function computeBudget(s) {
-  var months = [], cum401k = 0, mGross = s.annualSalary / 12;
+  var months = [], cum401k = 0, cumDisc = 0, mGross = s.annualSalary / 12;
 
   for (var i = 1; i <= 12; i++) {
     var gross   = i === 1 ? mGross * s.firstMonthFraction : mGross;
@@ -222,12 +222,16 @@ function computeBudget(s) {
       remInc = postTax - c401k - rent - exp;
       pSav   = s.inheritanceMonthly;
     } else {
-      // ── Phase 2: discretionary first, then 401K, then expenses, then savings ──
-      disc        = (s.annualDiscretionary || 0) / 9;  // spread over 9 Phase-2 months
-      var base    = Math.max(0, postTax - rent - disc);
-      c401k       = Math.min(base, capRem);
-      remInc      = Math.max(0, base - c401k - exp);
-      pSav        = remInc + s.inheritanceMonthly;
+      // ── Phase 2: rent → expenses → max 401K → discretionary (up to target) → personal savings ──
+      var afterFixed = Math.max(0, postTax - rent - exp);
+      c401k          = Math.min(afterFixed, capRem);
+      var afterRetirement = Math.max(0, afterFixed - c401k);
+      var discTarget = s.annualDiscretionary || 0;
+      var discRem    = Math.max(0, discTarget - cumDisc);
+      disc           = Math.min(afterRetirement, discRem);
+      cumDisc       += disc;
+      remInc         = Math.max(0, afterRetirement - disc);
+      pSav           = remInc + s.inheritanceMonthly;
     }
 
     cum401k += c401k;
