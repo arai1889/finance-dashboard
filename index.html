@@ -5,8 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Finance Dashboard</title>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-*{box-sizing:border-box;margin:0;padding:0;font-family:'Inter','Segoe UI',Arial,sans-serif !important}
+*{box-sizing:border-box;margin:0;padding:0;font-family:'Segoe UI',system-ui,-apple-system,Arial,sans-serif !important}
 :root{
   --bg:#F5F0E8;
   --card:#FFFFFF;
@@ -26,7 +25,7 @@
 }
 body{
   background:var(--bg);color:var(--text);
-  font-family:'Segoe UI','Inter',system-ui,-apple-system,sans-serif;
+  font-family:'Segoe UI',system-ui,-apple-system,Arial,sans-serif;
   font-size:13px;height:100vh;overflow:hidden;
 }
 #error-box{display:none;position:fixed;top:0;left:0;right:0;background:#b91c1c;color:#fff;
@@ -1194,8 +1193,9 @@ function tog(id) {
 function swTab(t) {
   S.tab = t;
   // update button states without full re-render
-  document.querySelectorAll('.tab-btn').forEach(function(b, i) {
-    b.className = 'tab-btn' + (S.tab === ['coastfire','budget'][i] ? ' active' : '');
+  document.querySelectorAll('.tab-btn').forEach(function(b) {
+    var tabName = b.getAttribute('onclick').match(/'([^']+)'/)[1];
+    b.className = 'tab-btn' + (S.tab === tabName ? ' active' : '');
   });
   refreshMain();
 }
