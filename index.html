@@ -163,12 +163,12 @@ window.onerror = function(msg, src, line, col, err) {
 // ── state ──────────────────────────────────────────────────────────────────────
 var S = {
   currentAge: 29.5, retirementAge: 60,
-  brokerageAssets: 200000, iraAssets: 320000,
+  brokerageAssets: 200000, iraAssets: 380000,
   targetSpending: 200000, swr: 2, returnRate: 10, inflationRate: 3.25,
-  planningYear: 2027, annualSalary: 192000, taxRate: 30,
-  monthlyExpenses: 2500, monthlyRent: 3100, rentFreeMonths: 2,
-  expectedTaxPayment: 7000, annual401kCap: 23500, rate401k: 0,
-  bonusPct: 20, pctBonusSaved: 77, employer401kMatch: 10900,
+  planningYear: 2027, annualSalary: 200000, taxRate: 30,
+  monthlyExpenses: 2500, monthlyRent: 3100, rentFreeMonths: 1,
+  expectedTaxPayment: 13500, annual401kCap: 23500, rate401k: 0,
+  bonusPct: 20, pctBonusSaved: 77, employer401kMatch: 11500,
   firstMonthFraction: 0.25, firstMonthNoExpenses: true, weddingGoal: 15000,
   inheritanceMonthly: 1500, annualDiscretionary: 0,
   tab: 'coastfire'
@@ -900,6 +900,258 @@ function renderSidebar(s) {
   return h;
 }
 
+// ── Accounts tab: year-by-year brokerage vs IRA simulation ────────────────────
+function computeAccounts(s, budget) {
+  var realRet = s.returnRate/100 - s.inflationRate/100;
+  var cf      = computeCoastFIRE(s, budget.totSav);
+
+  // contributions split: personal+bonus → brokerage; 401K+match → IRA
+  var annBrok = budget.totPSav + budget.bonusSav;
+  var annIRA  = budget.tot401k + s.employer401kMatch;
+
+  function annFV(annual) {
+    var m = annual / 12, fv = 0;
+    for (var k = 0; k < 12; k++) fv += m * Math.pow(1 + realRet, k / 12);
+    return fv;
+  }
+  var brokFV = annFV(annBrok);
+  var iraFV  = annFV(annIRA);
+
+  var brok = s.brokerageAssets, ira = s.iraAssets;
+  var pts  = [[s.currentAge, brok, ira]];
+  var span = s.retirementAge - s.currentAge;
+
+  for (var yr = 1; yr <= Math.ceil(span) + 2; yr++) {
+    var age = s.currentAge + yr;
+    if (age > s.retirementAge + 0.1) break;
+    var contrib = (s.currentAge + yr - 1) < cf.coastAge;
+    brok = brok * (1 + realRet) + (contrib ? brokFV : 0);
+    ira  = ira  * (1 + realRet) + (contrib ? iraFV  : 0);
+    pts.push([age, brok, ira]);
+  }
+
+  function atAge(targetAge) {
+    for (var i = 0; i < pts.length - 1; i++) {
+      if (pts[i][0] <= targetAge && pts[i+1][0] > targetAge) {
+        var f = (targetAge - pts[i][0]);
+        return [pts[i][1] + f*(pts[i+1][1]-pts[i][1]), pts[i][2] + f*(pts[i+1][2]-pts[i][2])];
+      }
+    }
+    var last = pts[pts.length-1];
+    return [last[1], last[2]];
+  }
+
+  return { pts: pts, cf: cf, annBrok: annBrok, annIRA: annIRA, atAge: atAge };
+}
+
+function buildAccountsChart(s, acc) {
+  var realRet = s.returnRate/100 - s.inflationRate/100;
+  var pts = acc.pts, cf = acc.cf;
+  var FI  = s.targetSpending / (s.swr / 100);
+  var span = s.retirementAge - s.currentAge;
+
+  var maxV = 0;
+  for (var i = 0; i < pts.length; i++) {
+    var tot = pts[i][1] + pts[i][2];
+    if (tot > maxV) maxV = tot;
+  }
+  maxV = Math.max(maxV * 1.1, FI * 1.05);
+
+  var W=700, H=280, pL=80, pR=28, pT=24, pB=40;
+  var cW = W-pL-pR, cH = H-pT-pB;
+
+  function xs(age) { return pL + (age - s.currentAge) / span * cW; }
+  function ys(v)   { return H - pB - Math.min(1, Math.max(0, v / maxV)) * cH; }
+  function mkPath(arr, fi) {
+    return arr.map(function(p, idx) {
+      return (idx===0?'M':'L') + xs(p[0]).toFixed(1) + ',' + ys(p[fi]).toFixed(1);
+    }).join(' ');
+  }
+
+  var tc = '#7A7168', gc = '#E8E2D8';
+  var yticks = [];
+  for (var k = 0; k <= 5; k++) yticks.push(maxV * k / 5);
+  var xticks = [];
+  var xStart = Math.ceil((s.currentAge + 0.01) / 5) * 5;
+  for (var a = xStart; a <= s.retirementAge; a += 5) xticks.push(a);
+
+  var svg = '<svg class="chart" viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg">';
+
+  // grid
+  svg += yticks.map(function(v) {
+    var y = ys(v).toFixed(1);
+    return '<line x1="'+pL+'" y1="'+y+'" x2="'+(W-pR)+'" y2="'+y+'" stroke="'+gc+'" stroke-width="1"/>';
+  }).join('');
+
+  // vertical marker: CoastFIRE age
+  if (!cf.achieved && !cf.unreachable && cf.coastAge <= s.retirementAge) {
+    var cxA = xs(cf.coastAge).toFixed(1);
+    svg += '<line x1="'+cxA+'" y1="'+pT+'" x2="'+cxA+'" y2="'+(H-pB)+
+           '" stroke="#5E9E6E" stroke-width="1.5" stroke-dasharray="4,3" opacity=".7"/>';
+    svg += '<text x="'+cxA+'" y="'+(pT-4)+'" text-anchor="middle" font-size="9.5" fill="#5E9E6E">CoastFIRE '+cf.coastAgeRounded+'</text>';
+  }
+  // vertical marker: age 59.5 (IRA unlock)
+  if (s.currentAge < 59.5 && 59.5 < s.retirementAge) {
+    var ira59x = xs(59.5).toFixed(1);
+    svg += '<line x1="'+ira59x+'" y1="'+pT+'" x2="'+ira59x+'" y2="'+(H-pB)+
+           '" stroke="#B8893A" stroke-width="1.5" stroke-dasharray="4,3" opacity=".7"/>';
+    svg += '<text x="'+ira59x+'" y="'+(pT-4)+'" text-anchor="middle" font-size="9.5" fill="#B8893A">IRA unlocks 59.5</text>';
+  }
+
+  // IRA fill
+  var lastIRA = pts[pts.length-1];
+  var iraFillD = mkPath(pts, 2) + ' L'+xs(lastIRA[0]).toFixed(1)+','+(H-pB)+' L'+pL+','+(H-pB)+' Z';
+  svg += '<path d="'+iraFillD+'" fill="rgba(184,137,58,.10)"/>';
+
+  // Brokerage fill
+  var brokFillD = mkPath(pts, 1) + ' L'+xs(lastIRA[0]).toFixed(1)+','+(H-pB)+' L'+pL+','+(H-pB)+' Z';
+  svg += '<path d="'+brokFillD+'" fill="rgba(91,127,166,.10)"/>';
+
+  // Combined total (gray dashed)
+  var totalPath = pts.map(function(p, idx) {
+    return (idx===0?'M':'L') + xs(p[0]).toFixed(1) + ',' + ys(p[1]+p[2]).toFixed(1);
+  }).join(' ');
+  svg += '<path d="'+totalPath+'" stroke="#A0978C" fill="none" stroke-width="1.8" stroke-dasharray="6,4"/>';
+
+  // IRA line (amber)
+  svg += '<path d="'+mkPath(pts, 2)+'" stroke="#B8893A" fill="none" stroke-width="2.5" stroke-linejoin="round"/>';
+
+  // Brokerage line (blue)
+  svg += '<path d="'+mkPath(pts, 1)+'" stroke="#5B7FA6" fill="none" stroke-width="2.5" stroke-linejoin="round"/>';
+
+  // Hidden dots + crosshair for hover
+  svg += '<line id="acc-xhair" x1="0" y1="'+pT+'" x2="0" y2="'+(H-pB)+'" stroke="#C8C2B8" stroke-width="1" stroke-dasharray="3,2" display="none"/>';
+  svg += '<circle id="acc-dot-brok" cx="0" cy="0" r="5.5" fill="#5B7FA6" stroke="#fff" stroke-width="2" display="none"/>';
+  svg += '<circle id="acc-dot-ira"  cx="0" cy="0" r="5.5" fill="#B8893A" stroke="#fff" stroke-width="2" display="none"/>';
+
+  // Y axis labels
+  svg += yticks.map(function(v) {
+    return '<text x="'+(pL-7)+'" y="'+(ys(v)+4)+'" text-anchor="end" font-size="10" fill="'+tc+'">'+fmtM(v)+'</text>';
+  }).join('');
+
+  // X axis labels
+  svg += '<text x="'+(pL+3)+'" y="'+(H-pB+15)+'" text-anchor="start" font-size="10" fill="'+tc+'">'+s.currentAge+'</text>';
+  svg += xticks.filter(function(a) { return (a-s.currentAge)>=3 && (s.retirementAge-a)>=3; })
+    .map(function(a) {
+      return '<text x="'+xs(a).toFixed(1)+'" y="'+(H-pB+15)+'" text-anchor="middle" font-size="10" fill="'+tc+'">'+a+'</text>';
+    }).join('');
+  svg += '<text x="'+(W-pR-3)+'" y="'+(H-pB+15)+'" text-anchor="end" font-size="10" fill="'+tc+'">'+s.retirementAge+'</text>';
+
+  // Legend
+  var lx = pL + 6, ly = pT + 4, lw = 200, lh = 58;
+  svg += '<rect x="'+lx+'" y="'+ly+'" width="'+lw+'" height="'+lh+'" rx="5" fill="rgba(255,255,255,.93)" stroke="'+gc+'"/>';
+  svg += '<line x1="'+(lx+8)+'" y1="'+(ly+14)+'" x2="'+(lx+26)+'" y2="'+(ly+14)+'" stroke="#5B7FA6" stroke-width="2.5"/>';
+  svg += '<text x="'+(lx+31)+'" y="'+(ly+18)+'" font-size="10.5" fill="'+tc+'">Brokerage</text>';
+  svg += '<line x1="'+(lx+8)+'" y1="'+(ly+30)+'" x2="'+(lx+26)+'" y2="'+(ly+30)+'" stroke="#B8893A" stroke-width="2.5"/>';
+  svg += '<text x="'+(lx+31)+'" y="'+(ly+34)+'" font-size="10.5" fill="'+tc+'">IRA / 401K</text>';
+  svg += '<line x1="'+(lx+8)+'" y1="'+(ly+46)+'" x2="'+(lx+26)+'" y2="'+(ly+46)+'" stroke="#A0978C" stroke-width="1.8" stroke-dasharray="5,3"/>';
+  svg += '<text x="'+(lx+31)+'" y="'+(ly+50)+'" font-size="10.5" fill="'+tc+'">Combined total</text>';
+
+  // Hover strips
+  for (var hi = 0; hi < pts.length; hi++) {
+    var hAge = pts[hi][0];
+    var hB   = Math.round(pts[hi][1]);
+    var hI   = Math.round(pts[hi][2]);
+    var hX   = xs(hAge);
+    var hYb  = ys(pts[hi][1]);
+    var hYi  = ys(pts[hi][2]);
+    var x1h  = hi === 0 ? pL : xs((pts[hi-1][0] + hAge) / 2);
+    var x2h  = hi === pts.length-1 ? W-pR : xs((hAge + pts[hi+1][0]) / 2);
+    svg += '<rect x="'+x1h.toFixed(1)+'" y="'+pT+'" width="'+Math.max(1,x2h-x1h).toFixed(1)+'" height="'+(H-pT-pB)+'"'+
+      ' fill="transparent" style="cursor:crosshair"'+
+      ' onmouseover="accTip(event,'+hAge+','+hB+','+hI+','+hX.toFixed(2)+','+hYb.toFixed(2)+','+hYi.toFixed(2)+')"'+
+      ' onmouseout="accTipHide()"/>';
+  }
+
+  svg += '</svg>';
+  return svg;
+}
+
+function accTip(e, age, brok, ira, hx, hyB, hyI) {
+  var tip = document.getElementById('acc-tip');
+  if (!tip) {
+    tip = document.createElement('div');
+    tip.id = 'acc-tip';
+    tip.style.cssText = 'position:fixed;background:#fff;border:1px solid #E4DDD2;border-radius:10px;'+
+      'padding:11px 15px;font-size:12px;line-height:2;box-shadow:0 4px 18px rgba(0,0,0,.13);'+
+      'pointer-events:none;z-index:9999;min-width:210px;color:#2D2D2D';
+    document.body.appendChild(tip);
+  }
+  tip.innerHTML =
+    '<div style="font-weight:700;font-size:12.5px;margin-bottom:2px">Age: '+age+'</div>'+
+    '<div><span style="color:#5B7FA6;font-weight:600">Brokerage:</span> <strong>'+fmt(brok)+'</strong></div>'+
+    '<div><span style="color:#B8893A;font-weight:600">IRA / 401K:</span> <strong>'+fmt(ira)+'</strong></div>'+
+    '<div style="border-top:1px solid #E4DDD2;margin-top:4px;padding-top:4px">'+
+    'Total: <strong>'+fmt(brok+ira)+'</strong></div>';
+  var tx = e.clientX + 18;
+  if (tx + 230 > window.innerWidth - 12) tx = e.clientX - 242;
+  tip.style.left = tx + 'px';
+  tip.style.top  = (e.clientY - 14) + 'px';
+  tip.style.display = 'block';
+  var xh = document.getElementById('acc-xhair');
+  var db = document.getElementById('acc-dot-brok');
+  var di = document.getElementById('acc-dot-ira');
+  if (xh) { xh.setAttribute('x1',hx); xh.setAttribute('x2',hx); xh.setAttribute('display','inline'); }
+  if (db) { db.setAttribute('cx',hx); db.setAttribute('cy',hyB); db.setAttribute('display','inline'); }
+  if (di) { di.setAttribute('cx',hx); di.setAttribute('cy',hyI); di.setAttribute('display','inline'); }
+}
+function accTipHide() {
+  var tip = document.getElementById('acc-tip');
+  if (tip) tip.style.display = 'none';
+  ['acc-xhair','acc-dot-brok','acc-dot-ira'].forEach(function(id) {
+    var el = document.getElementById(id); if (el) el.setAttribute('display','none');
+  });
+}
+
+function renderAccounts(s, budget) {
+  var acc  = computeAccounts(s, budget);
+  var cf   = acc.cf;
+  var html = '';
+
+  // projected values at milestone ages
+  var at50   = acc.atAge(50);
+  var at59h  = acc.atAge(59.5);
+  var atRet  = acc.atAge(s.retirementAge);
+
+  html += '<div class="stat-grid">';
+  html += '<div class="stat"><div class="stat-label">Brokerage at Age 50</div>'+
+    '<div class="stat-value" style="color:var(--accent)">'+fmtM(at50[0])+'</div>'+
+    '<div class="stat-sub">personal + bonus savings compounding</div></div>';
+  html += '<div class="stat"><div class="stat-label">IRA at Age 59.5</div>'+
+    '<div class="stat-value" style="color:var(--amber)">'+fmtM(at59h[1])+'</div>'+
+    '<div class="stat-sub">401K + employer match compounding</div></div>';
+  html += '<div class="stat"><div class="stat-label">Total at Retirement ('+s.retirementAge+')</div>'+
+    '<div class="stat-value" style="color:var(--green)">'+fmtM(atRet[0]+atRet[1])+'</div>'+
+    '<div class="stat-sub">'+fmtM(atRet[0])+' brokerage + '+fmtM(atRet[1])+' IRA</div></div>';
+  html += '</div>';
+
+  // annual flow card
+  html += '<div class="card"><div class="card-title">Annual Contribution Split</div>';
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:12px">';
+  html += '<div style="padding:12px;background:rgba(91,127,166,.07);border:1px solid rgba(91,127,166,.2);border-radius:8px">'+
+    '<div style="color:var(--accent);font-weight:600;margin-bottom:4px">→ Brokerage</div>'+
+    '<div style="font-size:18px;font-weight:700">'+fmt(acc.annBrok)+'/yr</div>'+
+    '<div style="color:var(--muted);margin-top:4px">Personal savings + bonus savings</div></div>';
+  html += '<div style="padding:12px;background:rgba(184,137,58,.07);border:1px solid rgba(184,137,58,.2);border-radius:8px">'+
+    '<div style="color:var(--amber);font-weight:600;margin-bottom:4px">→ IRA / 401K</div>'+
+    '<div style="font-size:18px;font-weight:700">'+fmt(acc.annIRA)+'/yr</div>'+
+    '<div style="color:var(--muted);margin-top:4px">401K contributions + employer match</div></div>';
+  html += '</div>';
+  html += '<div style="font-size:11.5px;color:var(--muted);margin-top:10px">'+
+    'Contributions stop at CoastFIRE age <strong>'+cf.coastAgeRounded+'</strong>. '+
+    'Both accounts continue compounding at the real return rate ('+pct(s.returnRate-s.inflationRate,2)+') until retirement.</div>';
+  html += '</div>';
+
+  // chart
+  html += '<div class="card"><div class="card-title">Brokerage vs. IRA Over Time</div>'+
+    '<div style="font-size:11.5px;color:var(--muted);margin-bottom:10px">'+
+    'Hover to see exact values at each age. Dashed vertical lines mark CoastFIRE and IRA unlock (59.5). '+
+    'Gray dashed = combined total (matches CoastFIRE tab net worth line).</div>'+
+    '<div class="chart-wrap">'+buildAccountsChart(s, acc)+'</div></div>';
+
+  return html;
+}
+
 // ── full render ────────────────────────────────────────────────────────────────
 function render() {
   var budget = computeBudget(S);
@@ -912,6 +1164,7 @@ function render() {
     '<div class="hdr-right">'+
     '<div class="tabs">'+
     '<button class="tab-btn'+(S.tab==='coastfire'?' active':'')+'" onclick="swTab(\'coastfire\')">CoastFIRE</button>'+
+    '<button class="tab-btn'+(S.tab==='accounts'?' active':'')+'" onclick="swTab(\'accounts\')">Accounts</button>'+
     '<button class="tab-btn'+(S.tab==='budget'?' active':'')+'" onclick="swTab(\'budget\')">Budget Planner</button>'+
     '</div></div></div>';
 
@@ -919,7 +1172,7 @@ function render() {
   html += '<div class="body">'+
     '<div class="sidebar" id="sidebar">'+renderSidebar(S)+'</div>'+
     '<div class="main" id="main">'+
-    (S.tab==='coastfire' ? renderCoastFire(S, budget) : renderBudget(S, budget))+
+    (S.tab==='coastfire' ? renderCoastFire(S, budget) : S.tab==='accounts' ? renderAccounts(S, budget) : renderBudget(S, budget))+
     '</div></div>';
 
   document.getElementById('app').innerHTML = html;
