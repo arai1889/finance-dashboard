@@ -1211,7 +1211,7 @@ function refreshMain() {
   var m = document.getElementById('main');
   if (!m) { render(); return; }
   var budget = computeBudget(S);
-  m.innerHTML = S.tab==='coastfire' ? renderCoastFire(S, budget) : renderBudget(S, budget);
+  m.innerHTML = S.tab==='coastfire' ? renderCoastFire(S, budget) : S.tab==='accounts' ? renderAccounts(S, budget) : renderBudget(S, budget);
   // keep header subtitle in sync
   var sub = document.querySelector('.hdr-sub');
   if (sub) sub.textContent = S.planningYear + ' Planning Year';
