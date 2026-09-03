@@ -923,6 +923,7 @@ function computeAccounts(s, budget) {
   var brok = s.brokerageAssets, ira = s.iraAssets;
   var pts  = [[s.currentAge, brok, ira]];
   var span = s.retirementAge - s.currentAge;
+  var nextWithdrawal = semiAge; // advances by 3 after each hit
 
   for (var yr = 1; yr <= Math.ceil(span) + 2; yr++) {
     var age = s.currentAge + yr;
@@ -930,9 +931,10 @@ function computeAccounts(s, budget) {
     var contrib = (s.currentAge + yr - 1) < cf.coastAge;
     brok = brok * (1 + realRet) + (contrib ? brokFV : 0);
     ira  = ira  * (1 + realRet) + (contrib ? iraFV  : 0);
-    // Apply $600K brokerage withdrawal every 3 years starting at semiRetirementAge
-    if (age >= semiAge && Math.round((age - semiAge) * 1000) % 3000 < 1) {
+    // Apply $600K brokerage withdrawal in the first year we reach each 3-year milestone
+    if (age >= nextWithdrawal) {
       brok = Math.max(0, brok - brokerageWithdrawal);
+      nextWithdrawal += 3;
     }
     pts.push([age, brok, ira]);
   }
