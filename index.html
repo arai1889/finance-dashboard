@@ -162,14 +162,15 @@ window.onerror = function(msg, src, line, col, err) {
 
 // ── state ──────────────────────────────────────────────────────────────────────
 var S = {
-  currentAge: 29.5, retirementAge: 60, currentAssets: 520000,
+  currentAge: 29.5, retirementAge: 60,
+  brokerageAssets: 200000, iraAssets: 320000,
   targetSpending: 200000, swr: 2, returnRate: 10, inflationRate: 3.25,
   planningYear: 2027, annualSalary: 192000, taxRate: 30,
   monthlyExpenses: 2500, monthlyRent: 3100, rentFreeMonths: 2,
   expectedTaxPayment: 7000, annual401kCap: 23500, rate401k: 0,
   bonusPct: 20, pctBonusSaved: 77, employer401kMatch: 10900,
   firstMonthFraction: 0.25, firstMonthNoExpenses: true, weddingGoal: 15000,
-  inheritanceMonthly: 1500,
+  inheritanceMonthly: 1500, annualDiscretionary: 0,
   tab: 'coastfire'
 };
 
@@ -187,6 +188,7 @@ function fmtM(n) {
 }
 function pct(n, d) { return (isNaN(n) ? 0 : n).toFixed(d === undefined ? 1 : d) + '%'; }
 var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function totalAssets(s) { return (s.brokerageAssets || 0) + (s.iraAssets || 0); }
 
 // ── TWO-PHASE budget computation ───────────────────────────────────────────────
 // Phase 1 (months 1–3): run at the user-set rate401k to accrue exactly the tax payment.
@@ -213,27 +215,28 @@ function computeBudget(s) {
     }
 
     var capRem = Math.max(0, s.annual401kCap - cum401k);
-    var c401k, remInc, pSav;
+    var c401k, remInc, pSav, disc = 0;
 
     if (i <= 3) {
-      // ── Phase 1: explicit rate, income reserved for tax ──
+      // ── Phase 1: explicit rate, income reserved for tax; no discretionary ──
       c401k  = Math.min(postTax * (s.rate401k / 100), capRem);
       remInc = postTax - c401k - rent - exp;
-      pSav   = s.inheritanceMonthly;  // salary accruing for tax; inheritance still saved
+      pSav   = s.inheritanceMonthly;
     } else {
-      // ── Phase 2: maximise 401K, then personal savings ──
-      var avail = Math.max(0, postTax - rent - exp);
-      c401k  = Math.min(avail, capRem);
-      remInc = avail - c401k;                   // 0 until cap hit
-      pSav   = remInc + s.inheritanceMonthly;    // inheritance always added on top
+      // ── Phase 2: discretionary first, then 401K, then expenses, then savings ──
+      disc        = (s.annualDiscretionary || 0) / 9;  // spread over 9 Phase-2 months
+      var base    = Math.max(0, postTax - rent - disc);
+      c401k       = Math.min(base, capRem);
+      remInc      = Math.max(0, base - c401k - exp);
+      pSav        = remInc + s.inheritanceMonthly;
     }
 
     cum401k += c401k;
 
     months.push({
       month: i, gross: gross, postTax: postTax, c401k: c401k,
-      cum401k: cum401k, rent: rent, exp: exp, remInc: remInc,
-      taxPay: i === 4 ? s.expectedTaxPayment : 0,   // informational: paid from pool
+      cum401k: cum401k, rent: rent, disc: disc, exp: exp, remInc: remInc,
+      taxPay: i === 4 ? s.expectedTaxPayment : 0,
       pSav: pSav, phase: i <= 3 ? 1 : 2
     });
   }
@@ -242,13 +245,14 @@ function computeBudget(s) {
   var taxGap    = q1Accrual - s.expectedTaxPayment;
   var tot401k   = months.reduce(function(a, m) { return a + m.c401k; }, 0);
   var totPSav   = months.reduce(function(a, m) { return a + m.pSav; }, 0);
+  var totDisc   = months.reduce(function(a, m) { return a + m.disc; }, 0);
   var bonus     = s.annualSalary * (s.bonusPct / 100);
   var bonusSav  = bonus * (s.pctBonusSaved / 100);
   var bonusLeft = bonus - bonusSav;
   var totSav    = tot401k + totPSav + bonusSav + s.employer401kMatch;
 
   return { months: months, q1Accrual: q1Accrual, taxGap: taxGap,
-    tot401k: tot401k, totPSav: totPSav, bonus: bonus,
+    tot401k: tot401k, totPSav: totPSav, totDisc: totDisc, bonus: bonus,
     bonusSav: bonusSav, bonusLeft: bonusLeft, totSav: totSav };
 }
 
@@ -280,7 +284,7 @@ function computeCoastFIRE(s, annualSavings) {
   console.log('[CoastFIRE] realRet=%.4f  FI=%.0f  target0=%.0f  annualSav=%.0f  annSavFV=%.0f',
     realRet, FI, target0, annualSavings, annSavFV);
 
-  var port   = s.currentAssets;
+  var port   = totalAssets(s);
   var tgt    = target0;
   var maxYrs = Math.ceil(yrsToRetire) + 1;
 
@@ -398,12 +402,12 @@ function buildChart(s, budget) {
   for (var k = 0; k < 12; k++) annSavFV += monthlySav * Math.pow(1 + realRet, k / 12);
 
   // Build year-by-year series
-  var contribPts = [[s.currentAge, s.currentAssets]];   // gray dashed
+  var contribPts = [[s.currentAge, totalAssets(s)]];   // gray dashed
   var targetPts  = [[s.currentAge, target0]];            // blue
-  var coastPts   = [[s.currentAge, s.currentAssets]];   // green + fill
+  var coastPts   = [[s.currentAge, totalAssets(s)]];   // green + fill
 
-  var portC       = s.currentAssets;
-  var portK       = s.currentAssets;
+  var portC       = totalAssets(s);
+  var portK       = totalAssets(s);
   var tgt         = target0;
   var coastDone   = cf.achieved;
   var numYears    = Math.ceil(span) + 2;
@@ -581,16 +585,28 @@ function renderCoastFire(s, budget) {
   var html     = '';
 
   // ── KPI cards ──
+  var brokerageYears = s.targetSpending > 0 ? (s.brokerageAssets / s.targetSpending).toFixed(1) : '—';
+  var bufferNeeded   = s.targetSpending * 3;
+  var bufferOk       = s.brokerageAssets >= bufferNeeded;
   html += '<div class="stat-grid">';
   html += '<div class="stat"><div class="stat-label">CoastFIRE Savings Target</div>'+
     '<div class="stat-value" style="color:var(--amber)">'+fmt(cf.target)+'</div>'+
-    '<div class="stat-sub">contributions needed (today\'s $)</div></div>';
+    '<div class="stat-sub">total portfolio needed (today\'s $)</div></div>';
   html += '<div class="stat"><div class="stat-label">Years to CoastFIRE</div>'+
     '<div class="stat-value" style="color:var(--accent)">'+(cf.achieved ? '0' : dispYrs)+'</div>'+
     '<div class="stat-sub">at current savings rate</div></div>';
   html += '<div class="stat"><div class="stat-label">CoastFIRE Age</div>'+
     '<div class="stat-value" style="color:var(--green)">'+(cf.achieved ? s.currentAge : dispAge)+'</div>'+
     '<div class="stat-sub">stop contributing, let it grow</div></div>';
+  html += '<div class="stat"><div class="stat-label">Brokerage Account</div>'+
+    '<div class="stat-value" style="color:var(--accent)">'+fmt(s.brokerageAssets)+'</div>'+
+    '<div class="stat-sub">accessible now · '+brokerageYears+' yrs of spending</div></div>';
+  html += '<div class="stat"><div class="stat-label">IRA / 401K</div>'+
+    '<div class="stat-value" style="color:var(--accent)">'+fmt(s.iraAssets)+'</div>'+
+    '<div class="stat-sub">locked until age 59.5</div></div>';
+  html += '<div class="stat"><div class="stat-label">3-Year Buffer Needed</div>'+
+    '<div class="stat-value" style="color:'+(bufferOk?'var(--green)':'var(--amber)')+'">'+fmt(bufferNeeded)+'</div>'+
+    '<div class="stat-sub">'+(bufferOk ? '✓ brokerage covers buffer' : 'need '+fmt(bufferNeeded - s.brokerageAssets)+' more in brokerage')+'</div></div>';
   html += '</div>';
 
   // ── timeline card ──
@@ -624,6 +640,58 @@ function renderCoastFire(s, budget) {
   }
   html += '</div>'; // close timeline card
 
+  // ── IRA / Brokerage withdrawal strategy card ──
+  var realRet2    = s.returnRate/100 - s.inflationRate/100;
+  var annBrok     = budget.totPSav + budget.bonusSav;  // personal + bonus savings → brokerage
+  var annIRA      = budget.tot401k + s.employer401kMatch;
+  // Project brokerage and IRA at CoastFIRE age (contributions stop then)
+  var yrsToCoast  = cf.achieved ? 0 : cf.yearsToCoast;
+  var mSavFV      = annBrok / 12;
+  var brokSavFV   = 0;
+  for (var bk = 0; bk < 12; bk++) brokSavFV += mSavFV * Math.pow(1 + realRet2, bk / 12);
+  var mIRAFV      = annIRA / 12;
+  var iraSavFV    = 0;
+  for (var ik = 0; ik < 12; ik++) iraSavFV += mIRAFV * Math.pow(1 + realRet2, ik / 12);
+  var projBrok    = s.brokerageAssets, projIRA = s.iraAssets;
+  for (var py = 0; py < Math.floor(yrsToCoast); py++) {
+    projBrok = projBrok * (1 + realRet2) + brokSavFV;
+    projIRA  = projIRA  * (1 + realRet2) + iraSavFV;
+  }
+  var bufferAtCoast  = s.targetSpending * 3;
+  var bufferCoastOk  = projBrok >= bufferAtCoast;
+  var ageAt59h       = 59.5;
+  var yrsEarlyRetire = Math.max(0, ageAt59h - (cf.achieved ? s.currentAge : cf.coastAge));
+  var iraUnlockAge   = 59.5;
+
+  html += '<div class="card"><div class="card-title">Withdrawal Strategy: Brokerage Buffer</div>';
+  html += '<div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.7">'+
+    'Before age 59.5 you draw from the <strong>brokerage account</strong> as a buffer. '+
+    'Keep <strong>3 years × spending</strong> in cash/brokerage at all times. '+
+    'At year-end: if the market is up, sell to replenish what you spent; '+
+    'if the market is down, wait — your 2 remaining buffer years absorb the downturn. '+
+    'At 59.5, switch to the IRA while the remaining brokerage compounds back up.</div>';
+  html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;font-size:12px;margin-bottom:10px">';
+  html += '<div style="padding:10px;background:var(--card2);border:1px solid var(--border2);border-radius:8px">'+
+    '<div style="color:var(--muted);margin-bottom:3px">IRA unlocks at</div>'+
+    '<strong style="font-size:15px">Age '+iraUnlockAge+'</strong></div>';
+  html += '<div style="padding:10px;background:var(--card2);border:1px solid var(--border2);border-radius:8px">'+
+    '<div style="color:var(--muted);margin-bottom:3px">Early-retire window</div>'+
+    '<strong style="font-size:15px">'+yrsEarlyRetire.toFixed(1)+' yrs</strong>'+
+    '<div style="font-size:10.5px;color:var(--muted);margin-top:2px">coast age → 59.5</div></div>';
+  html += '<div style="padding:10px;background:var(--card2);border:1px solid var(--border2);border-radius:8px">'+
+    '<div style="color:var(--muted);margin-bottom:3px">Projected brokerage at coast</div>'+
+    '<strong style="font-size:15px;color:'+(bufferCoastOk?'var(--green)':'var(--amber)')+'">'+fmt(projBrok)+'</strong>'+
+    '<div style="font-size:10.5px;color:var(--muted);margin-top:2px">need '+fmt(bufferAtCoast)+' for 3-yr buffer</div></div>';
+  html += '</div>';
+  html += '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;font-size:12px">';
+  html += '<div style="padding:10px;background:var(--card2);border:1px solid var(--border2);border-radius:8px">'+
+    '<div style="color:var(--muted);margin-bottom:3px">Annual → Brokerage (personal + bonus)</div>'+
+    '<strong>'+fmt(annBrok)+'</strong></div>';
+  html += '<div style="padding:10px;background:var(--card2);border:1px solid var(--border2);border-radius:8px">'+
+    '<div style="color:var(--muted);margin-bottom:3px">Annual → IRA (401K + match)</div>'+
+    '<strong>'+fmt(annIRA)+'</strong></div>';
+  html += '</div></div>';
+
   // ── chart ──
   html += '<div class="card"><div class="card-title">Portfolio vs. CoastFIRE Target</div>'+
     '<div style="font-size:11.5px;color:var(--muted);margin-bottom:10px">'+
@@ -639,7 +707,9 @@ function renderCoastFire(s, budget) {
     '<div><div style="color:var(--muted);margin-bottom:2px">Inflation</div><strong>'+pct(s.inflationRate)+'</strong></div>'+
     '<div><div style="color:var(--muted);margin-bottom:2px">Real return (r−π)</div><strong>'+pct(realRet*100,2)+'</strong></div>'+
     '<div><div style="color:var(--muted);margin-bottom:2px">FI number (spending / SWR)</div><strong>'+fmt(s.targetSpending/(s.swr/100))+'</strong></div>'+
-    '<div><div style="color:var(--muted);margin-bottom:2px">Current assets</div><strong>'+fmt(s.currentAssets)+'</strong></div>'+
+    '<div><div style="color:var(--muted);margin-bottom:2px">Brokerage (liquid)</div><strong>'+fmt(s.brokerageAssets)+'</strong></div>'+
+    '<div><div style="color:var(--muted);margin-bottom:2px">IRA / 401K (locked until 59.5)</div><strong>'+fmt(s.iraAssets)+'</strong></div>'+
+    '<div><div style="color:var(--muted);margin-bottom:2px">Total assets</div><strong>'+fmt(totalAssets(s))+'</strong></div>'+
     '<div><div style="color:var(--muted);margin-bottom:2px">Annual savings (budget)</div><strong>'+fmt(budget.totSav)+'</strong></div>'+
     '</div></div>';
 
@@ -652,16 +722,18 @@ function renderBudget(s, budget) {
   html += '<div class="card"><div class="card-title">'+s.planningYear+' Monthly Cash Flow</div>';
 
   // Phase legend
-  html += '<div style="display:flex;gap:16px;margin-bottom:12px;font-size:11.5px">'+
+  html += '<div style="display:flex;gap:16px;margin-bottom:12px;font-size:11.5px;flex-wrap:wrap">'+
     '<span><span class="chip chip-blue">Phase 1</span> Jan–Mar: contribute at <strong>'+pct(s.rate401k,2)+'</strong> to accrue tax reserve</span>'+
-    '<span><span class="chip chip-green">Phase 2</span> Apr–Dec: max 401K first, then personal savings</span>'+
+    '<span><span class="chip chip-green">Phase 2</span> Apr–Dec: discretionary first → 401K → expenses → personal savings</span>'+
     '</div>';
 
   html += '<div class="tbl-wrap"><table>';
   html += '<tr><th>Month</th><th>Gross</th><th>Post-Tax</th>'+
-    '<th>401K</th><th>Cum 401K</th><th>Rent</th><th>Expenses</th>'+
+    '<th>401K</th><th>Cum 401K</th><th>Rent</th>'+
+    '<th>Discretionary<sup title="Spread over Apr–Dec only">‡</sup></th>'+
+    '<th>Expenses</th>'+
     '<th>Remaining</th><th>Tax Accrual</th><th>Tax Paid</th><th>Tax Gap</th>'+
-    '<th>Personal Sav<sup title="Includes $1,500/mo inheritance">†</sup></th></tr>';
+    '<th>Personal Sav<sup title="Includes inheritance">†</sup></th></tr>';
 
   var q1Cum = 0;
   var inPhase2 = false;
@@ -669,8 +741,8 @@ function renderBudget(s, budget) {
     // Phase divider row between March and April
     if (idx === 3 && !inPhase2) {
       inPhase2 = true;
-      html += '<tr class="phase-header"><td colspan="12"><span class="chip chip-green">Phase 2</span> '+
-        ' 401K maximised first → personal savings once cap hit</td></tr>';
+      html += '<tr class="phase-header"><td colspan="13"><span class="chip chip-green">Phase 2</span> '+
+        ' Discretionary first → 401K maximised → expenses → personal savings</td></tr>';
     }
 
     if (idx < 3) q1Cum += m.remInc;
@@ -711,6 +783,8 @@ function renderBudget(s, budget) {
     html += '<td class="'+(m.cum401k>=s.annual401kCap?'dim':'neu')+'">'+fmt(m.cum401k)+
       (m.cum401k>=s.annual401kCap?' <span style="font-size:10px">⚑</span>':'')+'</td>';
     html += '<td class="'+(m.rent>0?'neg':'neu')+'">'+fmt(m.rent)+'</td>';
+    html += '<td class="'+(m.disc>0?'neg':'neu dim')+'">'+
+      (m.disc>0 ? fmt(m.disc) : '—')+'</td>';
     html += '<td class="'+(m.exp>0?'neg':'neu')+'">'+fmt(m.exp)+'</td>';
     html += '<td class="'+(m.remInc>=0?'pos':'neg')+'">'+fmt(m.remInc)+'</td>';
     html += accrualCell;
@@ -721,10 +795,15 @@ function renderBudget(s, budget) {
     html += '</tr>';
   });
   html += '</table></div>';
-  html += '<div style="margin-top:8px;font-size:11px;color:var(--muted);padding:0 2px">'+
+  html += '<div style="margin-top:8px;font-size:11px;color:var(--muted);padding:0 2px;line-height:1.8">'+
     '<sup>†</sup> Personal savings include a minimum of <strong>'+fmt(s.inheritanceMonthly)+'/mo</strong> ('+fmt(s.inheritanceMonthly*12)+'/yr) '+
     'from a family inheritance disbursement. During Jan–Mar the salary portion accrues toward the '+
-    'estimated tax payment; the inheritance $1,500 is saved regardless.</div>';
+    'estimated tax payment; the inheritance amount is saved regardless.<br>'+
+    (s.annualDiscretionary > 0
+      ? '<sup>‡</sup> Discretionary spend of <strong>'+fmt(s.annualDiscretionary)+'/yr</strong> is deducted first from post-tax income in Phase 2 (Apr–Dec), '+
+        'before 401K contributions and expenses. Monthly amount: '+fmt((s.annualDiscretionary/9))+'.'
+      : '<sup>‡</sup> Set <em>Annual Discretionary ($)</em> in the sidebar to add vacation, one-off purchases, etc. — deducted before 401K in Apr–Dec.')+
+    '</div>';
   html += '</div>';
 
   // ── annual summary ──
@@ -739,6 +818,11 @@ function renderBudget(s, budget) {
     (budget.tot401k>=s.annual401kCap?' <span style="font-size:12px;color:var(--green)">✓ maxed</span>':'')+'</div></div>';
   html += '<div class="sum-item"><div class="sum-item-label">Employer 401K Match</div>'+
     '<div class="sum-item-value" style="color:var(--accent)">'+fmt(s.employer401kMatch)+'</div></div>';
+  if (budget.totDisc > 0) {
+    html += '<div class="sum-item"><div class="sum-item-label">Discretionary Spend<sup>‡</sup></div>'+
+      '<div class="sum-item-value" style="color:var(--amber)">'+fmt(budget.totDisc)+'</div>'+
+      '<div style="font-size:11px;color:var(--muted);margin-top:2px">'+fmt(s.annualDiscretionary)+'/yr ÷ 9 mo (Apr–Dec)</div></div>';
+  }
   html += '<div class="sum-item"><div class="sum-item-label">Personal Savings (incl. inheritance<sup>†</sup>)</div>'+
     '<div class="sum-item-value" style="color:var(--green)">'+fmt(budget.totPSav)+'</div>'+
     '<div style="font-size:11px;color:var(--muted);margin-top:2px">'+fmt(s.inheritanceMonthly*12)+'/yr inheritance included</div></div>';
@@ -787,7 +871,8 @@ function renderSidebar(s) {
   h += '<div class="sec-label">Retirement</div>';
   h += mkInp('currentAge','Current Age',s.currentAge,0.5);
   h += mkInp('retirementAge','Retirement Age',s.retirementAge,1);
-  h += mkInp('currentAssets','Current Assets ($)',s.currentAssets,1000);
+  h += mkInp('brokerageAssets','Brokerage ($)',s.brokerageAssets,1000);
+  h += mkInp('iraAssets','IRA / 401K ($)',s.iraAssets,1000);
   h += mkInp('targetSpending','Target Spending/yr ($)',s.targetSpending,1000);
   h += mkInp('swr','Safe Withdrawal Rate (%)',s.swr,0.1);
   h += mkInp('returnRate','Expected Return (%)',s.returnRate,0.1);
@@ -797,6 +882,7 @@ function renderSidebar(s) {
   h += mkInp('planningYear','Planning Year',s.planningYear,1);
   h += mkInp('annualSalary','Annual Salary ($)',s.annualSalary,1000);
   h += mkInp('taxRate','Income Tax Rate (%)',s.taxRate,1);
+  h += mkInp('annualDiscretionary','Annual Discretionary ($)',s.annualDiscretionary,500);
   h += mkInp('monthlyExpenses','Monthly Expenses ($)',s.monthlyExpenses,100);
   h += mkInp('monthlyRent','Monthly Rent ($)',s.monthlyRent,100);
   h += mkInp('rentFreeMonths','Rent-Free Months',s.rentFreeMonths,1);
