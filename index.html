@@ -163,7 +163,8 @@ window.onerror = function(msg, src, line, col, err) {
 var S = {
   currentAge: 29.5, retirementAge: 60, semiRetirementAge: 51,
   brokerageAssets: 200000, iraAssets: 380000,
-  targetSpending: 200000, swr: 2, returnRate: 10, inflationRate: 3.25,
+  targetSpending: 200000, swr: 2, iraTargetSpending: 200000, iraSwr: 2,
+  returnRate: 10, inflationRate: 3.25,
   planningYear: 2027, annualSalary: 200000, taxRate: 33.5,
   monthlyExpenses: 2250, monthlyRent: 3600, rentFreeMonths: 1,
   expectedTaxPayment: 13500, annual401kCap: 23500, rate401k: 0,
@@ -577,144 +578,82 @@ function buildChart(s, budget) {
   return svg;
 }
 
-// ── render CoastFIRE tab ───────────────────────────────────────────────────────
+// ── Portfolio tab (CoastFIRE per account) ─────────────────────────────────────
 function renderCoastFire(s, budget) {
-  var cf       = computeCoastFIRE(s, budget.totSav);
-  var span     = s.retirementAge - s.currentAge;
-  var coastPct = span > 0 ? Math.min(97, Math.max(3, (cf.yearsToCoast / span) * 100)) : 0;
-  // Display age: rounded to nearest 0.5
-  var dispAge  = cf.coastAgeRounded;
-  var dispYrs  = cf.yearsToCoast.toFixed(1);
-  var html     = '';
+  var acc     = computeAccounts(s, budget);
+  var pts     = acc.pts;
+  var realRet = s.returnRate/100 - s.inflationRate/100;
+  var semiAge = s.semiRetirementAge || 51;
+  var FI_brok = s.targetSpending / (s.swr / 100);
+  var FI_ira  = (s.iraTargetSpending || s.targetSpending) / ((s.iraSwr || s.swr) / 100);
 
-  // ── KPI cards ──
-  var brokerageYears = s.targetSpending > 0 ? (s.brokerageAssets / s.targetSpending).toFixed(1) : '—';
-  var bufferNeeded   = s.targetSpending * 3;
-  var bufferOk       = s.brokerageAssets >= bufferNeeded;
-  html += '<div class="stat-grid">';
-  html += '<div class="stat"><div class="stat-label">CoastFIRE Savings Target</div>'+
-    '<div class="stat-value" style="color:var(--amber)">'+fmt(cf.target)+'</div>'+
-    '<div class="stat-sub">total portfolio needed (today\'s $)</div></div>';
-  html += '<div class="stat"><div class="stat-label">Years to CoastFIRE</div>'+
-    '<div class="stat-value" style="color:var(--accent)">'+(cf.achieved ? '0' : dispYrs)+'</div>'+
-    '<div class="stat-sub">at current savings rate</div></div>';
-  html += '<div class="stat"><div class="stat-label">CoastFIRE Age</div>'+
-    '<div class="stat-value" style="color:var(--green)">'+(cf.achieved ? s.currentAge : dispAge)+'</div>'+
-    '<div class="stat-sub">stop contributing, let it grow</div></div>';
-  html += '<div class="stat"><div class="stat-label">Brokerage Account</div>'+
-    '<div class="stat-value" style="color:var(--accent)">'+fmt(s.brokerageAssets)+'</div>'+
-    '<div class="stat-sub">accessible now · '+brokerageYears+' yrs of spending</div></div>';
-  html += '<div class="stat"><div class="stat-label">IRA / 401K</div>'+
-    '<div class="stat-value" style="color:var(--accent)">'+fmt(s.iraAssets)+'</div>'+
-    '<div class="stat-sub">locked until age 59.5</div></div>';
-  html += '<div class="stat"><div class="stat-label">3-Year Buffer Needed</div>'+
-    '<div class="stat-value" style="color:'+(bufferOk?'var(--green)':'var(--amber)')+'">'+fmt(bufferNeeded)+'</div>'+
-    '<div class="stat-sub">'+(bufferOk ? '✓ brokerage covers buffer' : 'need '+fmt(bufferNeeded - s.brokerageAssets)+' more in brokerage')+'</div></div>';
+  function findCrossing(field, fi, endAge) {
+    for (var i = 0; i < pts.length; i++) {
+      var age = pts[i][0];
+      if (age > endAge + 0.01) break;
+      var target = fi / Math.pow(1 + realRet, Math.max(0, endAge - age));
+      if (pts[i][field] >= target) {
+        if (i === 0) return age;
+        var prevAge = pts[i-1][0], prevVal = pts[i-1][field];
+        var prevTgt = fi / Math.pow(1 + realRet, Math.max(0, endAge - prevAge));
+        var denom = (pts[i][field] - target) - (prevVal - prevTgt);
+        var f = denom !== 0 ? (prevTgt - prevVal) / denom : 0;
+        var raw = prevAge + f * (age - prevAge);
+        return Math.round(raw * 2) / 2;
+      }
+    }
+    return null;
+  }
+
+  var brokCoastAge = findCrossing(1, FI_brok, semiAge);
+  var iraCoastAge  = findCrossing(2, FI_ira,  s.retirementAge);
+  var atSemi = acc.atAge(semiAge);
+  var atRet  = acc.atAge(s.retirementAge);
+
+  var html = '';
+
+  // KPI cards
+  html += '<div class="stat-grid" style="grid-template-columns:repeat(4,1fr)">';
+  html += '<div class="stat"><div class="stat-label">Brokerage CoastFIRE Age</div>'+
+    '<div class="stat-value" style="color:var(--accent)">'+(brokCoastAge !== null ? brokCoastAge : '—')+'</div>'+
+    '<div class="stat-sub">brokerage can coast to semi-ret. ('+semiAge+')</div></div>';
+  html += '<div class="stat"><div class="stat-label">IRA CoastFIRE Age</div>'+
+    '<div class="stat-value" style="color:var(--amber)">'+(iraCoastAge !== null ? iraCoastAge : '—')+'</div>'+
+    '<div class="stat-sub">IRA can coast to retirement ('+s.retirementAge+')</div></div>';
+  html += '<div class="stat"><div class="stat-label">Brokerage at '+semiAge+'</div>'+
+    '<div class="stat-value" style="color:var(--accent)">'+fmtM(atSemi[0])+'</div>'+
+    '<div class="stat-sub">after first $600K withdrawal</div></div>';
+  html += '<div class="stat"><div class="stat-label">IRA at Retirement ('+s.retirementAge+')</div>'+
+    '<div class="stat-value" style="color:var(--amber)">'+fmtM(atRet[1])+'</div>'+
+    '<div class="stat-sub">401K + employer match compounding</div></div>';
   html += '</div>';
 
-  // ── timeline card ──
-  html += '<div class="card"><div class="card-title">Age Timeline</div>';
-  html += '<div class="prog-label" style="margin-bottom:8px">'+
-    '<span>Current age <strong>'+s.currentAge+'</strong></span>'+
-    '<span>'+(cf.achieved
-      ? '<span style="color:var(--green);font-weight:700">Already at CoastFIRE!</span>'
-      : 'Coast at age <strong style="color:var(--green)">'+dispAge+'</strong>')+
-    '</span>'+
-    '<span>Retire at <strong>'+s.retirementAge+'</strong></span>'+
-    '</div>';
-  html += '<div class="timeline"><div class="tl-track">'+
-    '<div class="tl-fill-done" style="width:'+coastPct+'%"></div>'+
-    '<div class="tl-fill-coast" style="left:'+coastPct+'%;width:'+(100-coastPct)+'%"></div>'+
-    '</div>';
-  html += '<div class="tl-dot" style="left:0.5%;background:var(--accent)">'+
-    '<div class="tl-label" style="transform:none;left:0">'+s.currentAge+'</div></div>';
-  if (!cf.achieved && !cf.unreachable) {
-    html += '<div class="tl-dot" style="left:'+coastPct+'%;background:var(--green)">'+
-      '<div class="tl-label">'+dispAge+'</div></div>';
-  }
-  html += '<div class="tl-dot" style="left:98.5%;background:var(--muted)">'+
-    '<div class="tl-label" style="right:0;transform:none;left:auto">'+s.retirementAge+'</div></div>';
+  // Contribution split
+  html += '<div class="card"><div class="card-title">Annual Contribution Split</div>';
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:12px">';
+  html += '<div style="padding:12px;background:rgba(91,127,166,.07);border:1px solid rgba(91,127,166,.2);border-radius:8px">'+
+    '<div style="color:var(--accent);font-weight:600;margin-bottom:4px">→ Brokerage</div>'+
+    '<div style="font-size:18px;font-weight:700">'+fmt(acc.annBrok)+'/yr</div>'+
+    '<div style="color:var(--muted);margin-top:4px">Personal + bonus savings · stops at semi-ret. '+semiAge+'</div>'+
+    '<div style="color:var(--muted);margin-top:2px">FI target: '+fmt(FI_brok)+'</div></div>';
+  html += '<div style="padding:12px;background:rgba(184,137,58,.07);border:1px solid rgba(184,137,58,.2);border-radius:8px">'+
+    '<div style="color:var(--amber);font-weight:600;margin-bottom:4px">→ IRA / 401K</div>'+
+    '<div style="font-size:18px;font-weight:700">'+fmt(acc.annIRA)+'/yr</div>'+
+    '<div style="color:var(--muted);margin-top:4px">401K + employer match · until retirement '+s.retirementAge+'</div>'+
+    '<div style="color:var(--muted);margin-top:2px">FI target: '+fmt(FI_ira)+'</div></div>';
+  html += '</div>';
+  html += '<div style="font-size:11.5px;color:var(--muted);margin-top:10px">'+
+    'Brokerage takes a <strong>$600K withdrawal every 3 years</strong> from age '+semiAge+
+    ' (ages '+semiAge+', '+(semiAge+3)+', '+(semiAge+6)+', …). '+
+    'Real return: '+pct(s.returnRate - s.inflationRate, 2)+'.</div>';
   html += '</div>';
 
-  if (cf.unreachable) {
-    html += '<div style="margin-top:14px;padding:10px 12px;background:#FEF3F2;border:1px solid #FCA5A5;'+
-      'border-radius:8px;font-size:12px;color:#991B1B">'+
-      '⚠ CoastFIRE not reachable before retirement with current inputs. Increase savings rate or return rate.</div>';
-  }
-  html += '</div>'; // close timeline card
-
-  // ── IRA / Brokerage withdrawal strategy card ──
-  var realRet2    = s.returnRate/100 - s.inflationRate/100;
-  var annBrok     = budget.totPSav + budget.bonusSav;  // personal + bonus savings → brokerage
-  var annIRA      = budget.tot401k + s.employer401kMatch;
-  // Project brokerage and IRA at CoastFIRE age (contributions stop then)
-  var yrsToCoast  = cf.achieved ? 0 : cf.yearsToCoast;
-  var mSavFV      = annBrok / 12;
-  var brokSavFV   = 0;
-  for (var bk = 0; bk < 12; bk++) brokSavFV += mSavFV * Math.pow(1 + realRet2, bk / 12);
-  var mIRAFV      = annIRA / 12;
-  var iraSavFV    = 0;
-  for (var ik = 0; ik < 12; ik++) iraSavFV += mIRAFV * Math.pow(1 + realRet2, ik / 12);
-  var projBrok    = s.brokerageAssets, projIRA = s.iraAssets;
-  for (var py = 0; py < Math.floor(yrsToCoast); py++) {
-    projBrok = projBrok * (1 + realRet2) + brokSavFV;
-    projIRA  = projIRA  * (1 + realRet2) + iraSavFV;
-  }
-  var bufferAtCoast  = s.targetSpending * 3;
-  var bufferCoastOk  = projBrok >= bufferAtCoast;
-  var ageAt59h       = 59.5;
-  var yrsEarlyRetire = Math.max(0, ageAt59h - (cf.achieved ? s.currentAge : cf.coastAge));
-  var iraUnlockAge   = 59.5;
-
-  html += '<div class="card"><div class="card-title">Withdrawal Strategy: Brokerage Buffer</div>';
-  html += '<div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.7">'+
-    'Before age 59.5 you draw from the <strong>brokerage account</strong> as a buffer. '+
-    'Keep <strong>3 years × spending</strong> in cash/brokerage at all times. '+
-    'At year-end: if the market is up, sell to replenish what you spent; '+
-    'if the market is down, wait — your 2 remaining buffer years absorb the downturn. '+
-    'At 59.5, switch to the IRA while the remaining brokerage compounds back up.</div>';
-  html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;font-size:12px;margin-bottom:10px">';
-  html += '<div style="padding:10px;background:var(--card2);border:1px solid var(--border2);border-radius:8px">'+
-    '<div style="color:var(--muted);margin-bottom:3px">IRA unlocks at</div>'+
-    '<strong style="font-size:15px">Age '+iraUnlockAge+'</strong></div>';
-  html += '<div style="padding:10px;background:var(--card2);border:1px solid var(--border2);border-radius:8px">'+
-    '<div style="color:var(--muted);margin-bottom:3px">Early-retire window</div>'+
-    '<strong style="font-size:15px">'+yrsEarlyRetire.toFixed(1)+' yrs</strong>'+
-    '<div style="font-size:10.5px;color:var(--muted);margin-top:2px">coast age → 59.5</div></div>';
-  html += '<div style="padding:10px;background:var(--card2);border:1px solid var(--border2);border-radius:8px">'+
-    '<div style="color:var(--muted);margin-bottom:3px">Projected brokerage at coast</div>'+
-    '<strong style="font-size:15px;color:'+(bufferCoastOk?'var(--green)':'var(--amber)')+'">'+fmt(projBrok)+'</strong>'+
-    '<div style="font-size:10.5px;color:var(--muted);margin-top:2px">need '+fmt(bufferAtCoast)+' for 3-yr buffer</div></div>';
-  html += '</div>';
-  html += '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;font-size:12px">';
-  html += '<div style="padding:10px;background:var(--card2);border:1px solid var(--border2);border-radius:8px">'+
-    '<div style="color:var(--muted);margin-bottom:3px">Annual → Brokerage (personal + bonus)</div>'+
-    '<strong>'+fmt(annBrok)+'</strong></div>';
-  html += '<div style="padding:10px;background:var(--card2);border:1px solid var(--border2);border-radius:8px">'+
-    '<div style="color:var(--muted);margin-bottom:3px">Annual → IRA (401K + match)</div>'+
-    '<strong>'+fmt(annIRA)+'</strong></div>';
-  html += '</div></div>';
-
-  // ── chart ──
-  html += '<div class="card"><div class="card-title">Portfolio vs. CoastFIRE Target</div>'+
+  // Chart
+  html += '<div class="card"><div class="card-title">Portfolio vs. CoastFIRE Targets</div>'+
     '<div style="font-size:11.5px;color:var(--muted);margin-bottom:10px">'+
-    'Both your portfolio and the CoastFIRE target grow at the real return rate ('+pct((s.returnRate-s.inflationRate),2)+'). '+
-    'Green dot = age '+cf.coastAgeRounded+': portfolio crosses the CoastFIRE number — contributions can stop.</div>'+
-    '<div class="chart-wrap">'+buildChart(s, budget)+'</div></div>';
-
-  // ── assumptions ──
-  var r = s.returnRate/100, realRet = r - s.inflationRate/100;
-  html += '<div class="card"><div class="card-title">Key Figures</div>'+
-    '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;font-size:12px">'+
-    '<div><div style="color:var(--muted);margin-bottom:2px">Nominal return</div><strong>'+pct(s.returnRate)+'</strong></div>'+
-    '<div><div style="color:var(--muted);margin-bottom:2px">Inflation</div><strong>'+pct(s.inflationRate)+'</strong></div>'+
-    '<div><div style="color:var(--muted);margin-bottom:2px">Real return (r−π)</div><strong>'+pct(realRet*100,2)+'</strong></div>'+
-    '<div><div style="color:var(--muted);margin-bottom:2px">FI number (spending / SWR)</div><strong>'+fmt(s.targetSpending/(s.swr/100))+'</strong></div>'+
-    '<div><div style="color:var(--muted);margin-bottom:2px">Brokerage (liquid)</div><strong>'+fmt(s.brokerageAssets)+'</strong></div>'+
-    '<div><div style="color:var(--muted);margin-bottom:2px">IRA / 401K (locked until 59.5)</div><strong>'+fmt(s.iraAssets)+'</strong></div>'+
-    '<div><div style="color:var(--muted);margin-bottom:2px">Total assets</div><strong>'+fmt(totalAssets(s))+'</strong></div>'+
-    '<div><div style="color:var(--muted);margin-bottom:2px">Annual savings (budget)</div><strong>'+fmt(budget.totSav)+'</strong></div>'+
-    '</div></div>';
+    'Solid lines = account balances. Dashed lines = CoastFIRE target (amount needed now to compound to FI by the target date). '+
+    'Where each solid line crosses its dashed target = CoastFIRE achieved for that account.</div>'+
+    '<div class="chart-wrap">'+buildAccountsChart(s, acc, FI_brok, FI_ira, brokCoastAge, iraCoastAge)+'</div></div>';
 
   return html;
 }
@@ -877,8 +816,10 @@ function renderSidebar(s) {
   h += mkInp('semiRetirementAge','Semi-Retirement Age',s.semiRetirementAge,1);
   h += mkInp('brokerageAssets','Brokerage ($)',s.brokerageAssets,1000);
   h += mkInp('iraAssets','IRA / 401K ($)',s.iraAssets,1000);
-  h += mkInp('targetSpending','Target Spending/yr ($)',s.targetSpending,1000);
-  h += mkInp('swr','Safe Withdrawal Rate (%)',s.swr,0.1);
+  h += mkInp('targetSpending','Brokerage Target Spend ($)',s.targetSpending,1000);
+  h += mkInp('swr','Brokerage SWR (%)',s.swr,0.1);
+  h += mkInp('iraTargetSpending','IRA Target Spend ($)',s.iraTargetSpending,1000);
+  h += mkInp('iraSwr','IRA SWR (%)',s.iraSwr,0.1);
   h += mkInp('returnRate','Expected Return (%)',s.returnRate,0.1);
   h += mkInp('inflationRate','Inflation Rate (%)',s.inflationRate,0.01);
   h += '<div class="divider"></div>';
@@ -932,9 +873,10 @@ function computeAccounts(s, budget) {
   for (var yr = 1; yr <= Math.ceil(span) + 2; yr++) {
     var age = s.currentAge + yr;
     if (age > s.retirementAge + 0.1) break;
-    var contrib = (s.currentAge + yr - 1) < cf.coastAge;
-    brok = brok * (1 + realRet) + (contrib ? brokFV : 0);
-    ira  = ira  * (1 + realRet) + (contrib ? iraFV  : 0);
+    // Brokerage contributes until semi-retirement; IRA contributes until retirement
+    var prevAge = s.currentAge + yr - 1;
+    brok = brok * (1 + realRet) + (prevAge < semiAge ? brokFV : 0);
+    ira  = ira  * (1 + realRet) + iraFV;
     // Apply $600K brokerage withdrawal in the first year we reach each 3-year milestone
     if (age >= nextWithdrawal) {
       brok = Math.max(0, brok - brokerageWithdrawal);
@@ -957,18 +899,19 @@ function computeAccounts(s, budget) {
   return { pts: pts, cf: cf, annBrok: annBrok, annIRA: annIRA, atAge: atAge };
 }
 
-function buildAccountsChart(s, acc) {
+function buildAccountsChart(s, acc, FI_brok, FI_ira, brokCoastAge, iraCoastAge) {
   var realRet = s.returnRate/100 - s.inflationRate/100;
-  var pts = acc.pts, cf = acc.cf;
-  var FI  = s.targetSpending / (s.swr / 100);
+  var pts  = acc.pts;
+  var semiAge = s.semiRetirementAge || 51;
   var span = s.retirementAge - s.currentAge;
 
+  // y-axis ceiling: max of account balances and both FI targets
   var maxV = 0;
   for (var i = 0; i < pts.length; i++) {
-    var tot = pts[i][1] + pts[i][2];
-    if (tot > maxV) maxV = tot;
+    if (pts[i][1] > maxV) maxV = pts[i][1];
+    if (pts[i][2] > maxV) maxV = pts[i][2];
   }
-  maxV = Math.max(maxV * 1.1, FI * 1.05);
+  maxV = Math.max(maxV * 1.1, FI_brok * 1.05, FI_ira * 1.05);
 
   var W=700, H=280, pL=80, pR=28, pT=24, pB=40;
   var cW = W-pL-pR, cH = H-pT-pB;
@@ -1005,40 +948,48 @@ function buildAccountsChart(s, acc) {
     svg += '<text x="'+semiX+'" y="'+(pT-4)+'" text-anchor="middle" font-size="9.5" fill="#5B7FA6">Semi-ret. '+semiAgeC+'</text>';
   }
 
-  // vertical marker: CoastFIRE age
-  if (!cf.achieved && !cf.unreachable && cf.coastAge <= s.retirementAge) {
-    var cxA = xs(cf.coastAge).toFixed(1);
-    svg += '<line x1="'+cxA+'" y1="'+pT+'" x2="'+cxA+'" y2="'+(H-pB)+
-           '" stroke="#5E9E6E" stroke-width="1.5" stroke-dasharray="4,3" opacity=".7"/>';
-    svg += '<text x="'+cxA+'" y="'+(pT-4)+'" text-anchor="middle" font-size="9.5" fill="#5E9E6E">CoastFIRE '+cf.coastAgeRounded+'</text>';
+  // vertical marker: brokerage CoastFIRE crossing
+  if (brokCoastAge !== null && brokCoastAge >= s.currentAge && brokCoastAge <= semiAge) {
+    var bcX = xs(brokCoastAge).toFixed(1);
+    svg += '<line x1="'+bcX+'" y1="'+pT+'" x2="'+bcX+'" y2="'+(H-pB)+
+           '" stroke="#5B7FA6" stroke-width="1.5" stroke-dasharray="4,3" opacity=".8"/>';
+    svg += '<text x="'+bcX+'" y="'+(pT-4)+'" text-anchor="middle" font-size="9.5" fill="#5B7FA6">Brok. coast '+brokCoastAge+'</text>';
   }
-  // vertical marker: age 59.5 (IRA unlock)
-  if (s.currentAge < 59.5 && 59.5 < s.retirementAge) {
-    var ira59x = xs(59.5).toFixed(1);
-    svg += '<line x1="'+ira59x+'" y1="'+pT+'" x2="'+ira59x+'" y2="'+(H-pB)+
-           '" stroke="#B8893A" stroke-width="1.5" stroke-dasharray="4,3" opacity=".7"/>';
-    svg += '<text x="'+ira59x+'" y="'+(pT-4)+'" text-anchor="middle" font-size="9.5" fill="#B8893A">IRA unlocks 59.5</text>';
+  // vertical marker: IRA CoastFIRE crossing
+  if (iraCoastAge !== null && iraCoastAge >= s.currentAge && iraCoastAge <= s.retirementAge) {
+    var icX = xs(iraCoastAge).toFixed(1);
+    svg += '<line x1="'+icX+'" y1="'+pT+'" x2="'+icX+'" y2="'+(H-pB)+
+           '" stroke="#B8893A" stroke-width="1.5" stroke-dasharray="4,3" opacity=".8"/>';
+    svg += '<text x="'+icX+'" y="'+(pT-4)+'" text-anchor="middle" font-size="9.5" fill="#B8893A">IRA coast '+iraCoastAge+'</text>';
   }
 
-  // IRA fill
-  var lastIRA = pts[pts.length-1];
-  var iraFillD = mkPath(pts, 2) + ' L'+xs(lastIRA[0]).toFixed(1)+','+(H-pB)+' L'+pL+','+(H-pB)+' Z';
-  svg += '<path d="'+iraFillD+'" fill="rgba(184,137,58,.10)"/>';
+  // CoastFIRE target curves (dashed) — drawn before solid lines so they sit behind
+  // Brokerage target: currentAge → semiAge
+  var brokTgtPath = '';
+  for (var ti = 0; ti < pts.length; ti++) {
+    var ta = pts[ti][0];
+    if (ta > semiAge + 0.01) break;
+    var tv = FI_brok / Math.pow(1 + realRet, Math.max(0, semiAge - ta));
+    brokTgtPath += (ti === 0 ? 'M' : 'L') + xs(ta).toFixed(1) + ',' + ys(tv).toFixed(1);
+  }
+  if (brokTgtPath) svg += '<path d="'+brokTgtPath+'" stroke="#5B7FA6" fill="none" stroke-width="1.5" stroke-dasharray="5,3" opacity=".6"/>';
 
-  // Brokerage fill
-  var brokFillD = mkPath(pts, 1) + ' L'+xs(lastIRA[0]).toFixed(1)+','+(H-pB)+' L'+pL+','+(H-pB)+' Z';
-  svg += '<path d="'+brokFillD+'" fill="rgba(91,127,166,.10)"/>';
-
-  // Combined total (gray dashed)
-  var totalPath = pts.map(function(p, idx) {
-    return (idx===0?'M':'L') + xs(p[0]).toFixed(1) + ',' + ys(p[1]+p[2]).toFixed(1);
+  // IRA target: currentAge → retirementAge
+  var iraTgtPath = pts.map(function(p, idx) {
+    var tv = FI_ira / Math.pow(1 + realRet, Math.max(0, s.retirementAge - p[0]));
+    return (idx===0?'M':'L') + xs(p[0]).toFixed(1) + ',' + ys(tv).toFixed(1);
   }).join(' ');
-  svg += '<path d="'+totalPath+'" stroke="#A0978C" fill="none" stroke-width="1.8" stroke-dasharray="6,4"/>';
+  svg += '<path d="'+iraTgtPath+'" stroke="#B8893A" fill="none" stroke-width="1.5" stroke-dasharray="5,3" opacity=".6"/>';
 
-  // IRA line (amber)
+  // IRA fill + line (amber)
+  var lastPt = pts[pts.length-1];
+  var iraFillD = mkPath(pts, 2) + ' L'+xs(lastPt[0]).toFixed(1)+','+(H-pB)+' L'+pL+','+(H-pB)+' Z';
+  svg += '<path d="'+iraFillD+'" fill="rgba(184,137,58,.08)"/>';
   svg += '<path d="'+mkPath(pts, 2)+'" stroke="#B8893A" fill="none" stroke-width="2.5" stroke-linejoin="round"/>';
 
-  // Brokerage line (blue)
+  // Brokerage fill + line (blue)
+  var brokFillD = mkPath(pts, 1) + ' L'+xs(lastPt[0]).toFixed(1)+','+(H-pB)+' L'+pL+','+(H-pB)+' Z';
+  svg += '<path d="'+brokFillD+'" fill="rgba(91,127,166,.08)"/>';
   svg += '<path d="'+mkPath(pts, 1)+'" stroke="#5B7FA6" fill="none" stroke-width="2.5" stroke-linejoin="round"/>';
 
   // Hidden dots + crosshair for hover
@@ -1060,20 +1011,24 @@ function buildAccountsChart(s, acc) {
   svg += '<text x="'+(W-pR-3)+'" y="'+(H-pB+15)+'" text-anchor="end" font-size="10" fill="'+tc+'">'+s.retirementAge+'</text>';
 
   // Legend
-  var lx = pL + 6, ly = pT + 4, lw = 200, lh = 58;
+  var lx = pL + 6, ly = pT + 4, lw = 210, lh = 74;
   svg += '<rect x="'+lx+'" y="'+ly+'" width="'+lw+'" height="'+lh+'" rx="5" fill="rgba(255,255,255,.93)" stroke="'+gc+'"/>';
   svg += '<line x1="'+(lx+8)+'" y1="'+(ly+14)+'" x2="'+(lx+26)+'" y2="'+(ly+14)+'" stroke="#5B7FA6" stroke-width="2.5"/>';
   svg += '<text x="'+(lx+31)+'" y="'+(ly+18)+'" font-size="10.5" fill="'+tc+'">Brokerage</text>';
   svg += '<line x1="'+(lx+8)+'" y1="'+(ly+30)+'" x2="'+(lx+26)+'" y2="'+(ly+30)+'" stroke="#B8893A" stroke-width="2.5"/>';
   svg += '<text x="'+(lx+31)+'" y="'+(ly+34)+'" font-size="10.5" fill="'+tc+'">IRA / 401K</text>';
-  svg += '<line x1="'+(lx+8)+'" y1="'+(ly+46)+'" x2="'+(lx+26)+'" y2="'+(ly+46)+'" stroke="#A0978C" stroke-width="1.8" stroke-dasharray="5,3"/>';
-  svg += '<text x="'+(lx+31)+'" y="'+(ly+50)+'" font-size="10.5" fill="'+tc+'">Combined total</text>';
+  svg += '<line x1="'+(lx+8)+'" y1="'+(ly+46)+'" x2="'+(lx+26)+'" y2="'+(ly+46)+'" stroke="#5B7FA6" stroke-width="1.5" stroke-dasharray="5,3" opacity=".7"/>';
+  svg += '<text x="'+(lx+31)+'" y="'+(ly+50)+'" font-size="10.5" fill="'+tc+'">Brokerage CoastFIRE target</text>';
+  svg += '<line x1="'+(lx+8)+'" y1="'+(ly+62)+'" x2="'+(lx+26)+'" y2="'+(ly+62)+'" stroke="#B8893A" stroke-width="1.5" stroke-dasharray="5,3" opacity=".7"/>';
+  svg += '<text x="'+(lx+31)+'" y="'+(ly+66)+'" font-size="10.5" fill="'+tc+'">IRA CoastFIRE target</text>';
 
-  // Hover strips
+  // Hover strips — pass CoastFIRE target values to tooltip
   for (var hi = 0; hi < pts.length; hi++) {
     var hAge = pts[hi][0];
     var hB   = Math.round(pts[hi][1]);
     var hI   = Math.round(pts[hi][2]);
+    var hBT  = Math.round(FI_brok / Math.pow(1 + realRet, Math.max(0, semiAge - hAge)));
+    var hIT  = Math.round(FI_ira  / Math.pow(1 + realRet, Math.max(0, s.retirementAge - hAge)));
     var hX   = xs(hAge);
     var hYb  = ys(pts[hi][1]);
     var hYi  = ys(pts[hi][2]);
@@ -1081,7 +1036,7 @@ function buildAccountsChart(s, acc) {
     var x2h  = hi === pts.length-1 ? W-pR : xs((hAge + pts[hi+1][0]) / 2);
     svg += '<rect x="'+x1h.toFixed(1)+'" y="'+pT+'" width="'+Math.max(1,x2h-x1h).toFixed(1)+'" height="'+(H-pT-pB)+'"'+
       ' fill="transparent" style="cursor:crosshair"'+
-      ' onmouseover="accTip(event,'+hAge+','+hB+','+hI+','+hX.toFixed(2)+','+hYb.toFixed(2)+','+hYi.toFixed(2)+')"'+
+      ' onmouseover="accTip(event,'+hAge+','+hB+','+hI+','+hBT+','+hIT+','+hX.toFixed(2)+','+hYb.toFixed(2)+','+hYi.toFixed(2)+')"'+
       ' onmouseout="accTipHide()"/>';
   }
 
@@ -1089,20 +1044,24 @@ function buildAccountsChart(s, acc) {
   return svg;
 }
 
-function accTip(e, age, brok, ira, hx, hyB, hyI) {
+function accTip(e, age, brok, ira, brokTgt, iraTgt, hx, hyB, hyI) {
   var tip = document.getElementById('acc-tip');
   if (!tip) {
     tip = document.createElement('div');
     tip.id = 'acc-tip';
     tip.style.cssText = 'position:fixed;background:#fff;border:1px solid #E4DDD2;border-radius:10px;'+
-      'padding:11px 15px;font-size:12px;line-height:2;box-shadow:0 4px 18px rgba(0,0,0,.13);'+
-      'pointer-events:none;z-index:9999;min-width:210px;color:#2D2D2D';
+      'padding:11px 15px;font-size:12px;line-height:1.9;box-shadow:0 4px 18px rgba(0,0,0,.13);'+
+      'pointer-events:none;z-index:9999;min-width:240px;color:#2D2D2D';
     document.body.appendChild(tip);
   }
+  var brokCoasted = brok >= brokTgt;
+  var iraCoasted  = ira  >= iraTgt;
   tip.innerHTML =
-    '<div style="font-weight:700;font-size:12.5px;margin-bottom:2px">Age: '+age+'</div>'+
-    '<div><span style="color:#5B7FA6;font-weight:600">Brokerage:</span> <strong>'+fmt(brok)+'</strong></div>'+
-    '<div><span style="color:#B8893A;font-weight:600">IRA / 401K:</span> <strong>'+fmt(ira)+'</strong></div>'+
+    '<div style="font-weight:700;font-size:12.5px;margin-bottom:4px">Age: '+age+'</div>'+
+    '<div><span style="color:#5B7FA6;font-weight:600">Brokerage:</span> <strong>'+fmt(brok)+'</strong>'+
+      ' <span style="font-size:10.5px;color:'+(brokCoasted?'#5E9E6E':'#A0978C')+'">'+(brokCoasted?'✓ coasting':'target: '+fmt(brokTgt))+'</span></div>'+
+    '<div><span style="color:#B8893A;font-weight:600">IRA / 401K:</span> <strong>'+fmt(ira)+'</strong>'+
+      ' <span style="font-size:10.5px;color:'+(iraCoasted?'#5E9E6E':'#A0978C')+'">'+(iraCoasted?'✓ coasting':'target: '+fmt(iraTgt))+'</span></div>'+
     '<div style="border-top:1px solid #E4DDD2;margin-top:4px;padding-top:4px">'+
     'Total: <strong>'+fmt(brok+ira)+'</strong></div>';
   var tx = e.clientX + 18;
@@ -1161,9 +1120,9 @@ function renderAccounts(s, budget) {
     '<div style="color:var(--muted);margin-top:4px">401K contributions + employer match</div></div>';
   html += '</div>';
   html += '<div style="font-size:11.5px;color:var(--muted);margin-top:10px">'+
-    'Contributions stop at CoastFIRE age <strong>'+cf.coastAgeRounded+'</strong>. '+
-    'Both accounts continue compounding at the real return rate ('+pct(s.returnRate-s.inflationRate,2)+') until retirement. '+
-    'Brokerage takes a <strong>$600K withdrawal every 3 years</strong> starting at semi-retirement age <strong>'+semiAge+'</strong> (ages '+semiAge+', '+(semiAge+3)+', '+(semiAge+6)+', …).</div>';
+    'Brokerage contributions stop at semi-retirement age <strong>'+semiAge+'</strong>; IRA contributions continue until retirement at <strong>'+s.retirementAge+'</strong>. '+
+    'Both compound at the real return rate ('+pct(s.returnRate-s.inflationRate,2)+'). '+
+    'Brokerage takes a <strong>$600K withdrawal every 3 years</strong> starting at age '+semiAge+' (ages '+semiAge+', '+(semiAge+3)+', '+(semiAge+6)+', …).</div>';
   html += '</div>';
 
   // chart
@@ -1187,8 +1146,7 @@ function render() {
     '<div class="hdr-sub">'+S.planningYear+' Planning Year</div></div>'+
     '<div class="hdr-right">'+
     '<div class="tabs">'+
-    '<button class="tab-btn'+(S.tab==='coastfire'?' active':'')+'" onclick="swTab(\'coastfire\')">CoastFIRE</button>'+
-    '<button class="tab-btn'+(S.tab==='accounts'?' active':'')+'" onclick="swTab(\'accounts\')">Accounts</button>'+
+    '<button class="tab-btn'+(S.tab==='coastfire'?' active':'')+'" onclick="swTab(\'coastfire\')">Portfolio</button>'+
     '<button class="tab-btn'+(S.tab==='budget'?' active':'')+'" onclick="swTab(\'budget\')">Budget Planner</button>'+
     '</div></div></div>';
 
@@ -1196,7 +1154,7 @@ function render() {
   html += '<div class="body">'+
     '<div class="sidebar" id="sidebar">'+renderSidebar(S)+'</div>'+
     '<div class="main" id="main">'+
-    (S.tab==='coastfire' ? renderCoastFire(S, budget) : S.tab==='accounts' ? renderAccounts(S, budget) : renderBudget(S, budget))+
+    (S.tab==='coastfire' ? renderCoastFire(S, budget) : renderBudget(S, budget))+
     '</div></div>';
 
   document.getElementById('app').innerHTML = html;
@@ -1236,7 +1194,7 @@ function refreshMain() {
   var m = document.getElementById('main');
   if (!m) { render(); return; }
   var budget = computeBudget(S);
-  m.innerHTML = S.tab==='coastfire' ? renderCoastFire(S, budget) : S.tab==='accounts' ? renderAccounts(S, budget) : renderBudget(S, budget);
+  m.innerHTML = S.tab==='coastfire' ? renderCoastFire(S, budget) : renderBudget(S, budget);
   // keep header subtitle in sync
   var sub = document.querySelector('.hdr-sub');
   if (sub) sub.textContent = S.planningYear + ' Planning Year';
